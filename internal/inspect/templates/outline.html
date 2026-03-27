@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Outline — pdf2md inspect</title>
+<style>
+  body { background: #2c3e50; color: #ecf0f1; font-family: monospace; padding: 20px; }
+  a { color: #3498db; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul { margin-left: 20px; }
+  li { margin: 4px 0; }
+  .page-num { color: #7f8c8d; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Table of Contents</h1>
+<p><a href="/page/1">← Back to pages</a> | <a href="/fonts">Fonts</a></p>
+{{define "outline_items"}}
+<ul>
+{{range .}}
+  <li>
+    {{.Title}} <span class="page-num">(p. {{.Page}})</span>
+    {{if .Children}}{{template "outline_items" .Children}}{{end}}
+  </li>
+{{end}}
+</ul>
+{{end}}
+{{if .Outline}}
+  {{template "outline_items" .Outline}}
+{{else}}
+  <p>No outline items found.</p>
+{{end}}
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fonts — pdf2md inspect</title>
+<style>
+  body { background: #2c3e50; color: #ecf0f1; font-family: monospace; padding: 20px; }
+  a { color: #3498db; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+  th, td { border: 1px solid #7f8c8d; padding: 6px 12px; text-align: left; }
+  th { background: #34495e; }
+  .role-h1 { color: #e74c3c; font-weight: bold; }
+  .role-h2 { color: #e67e22; font-weight: bold; }
+  .role-h3 { color: #f1c40f; }
+  .role-body { color: #ecf0f1; }
+  .role-small { color: #7f8c8d; }
+  .role-excluded { color: #c0392b; text-decoration: line-through; }
+  .role-unknown { color: #95a5a6; }
+</style>
+</head>
+<body>
+<h1>Font Map</h1>
+<p><a href="/page/1">← Back to pages</a> | <a href="/outline">Outline</a></p>
+<table>
+<thead>
+  <tr><th>Font ID</th><th>Family</th><th>Size</th><th>Role</th><th>Chars</th><th>Elements</th></tr>
+</thead>
+<tbody>
+{{range .}}
+  <tr>
+    <td>{{.ID}}</td>
+    <td>{{.Family}}</td>
+    <td>{{printf "%.1f" .Size}}</td>
+    <td class="role-{{.Role}}">{{.Role}}</td>
+    <td>{{.NbChars}}</td>
+    <td>{{.NbElems}}</td>
+  </tr>
+{{end}}
+</tbody>
+</table>
+</body>
+</html>
