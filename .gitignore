@@ -35,3 +35,4 @@ go.work.sum
 /documents/
 
 !.gitkeep
+/tests/PZOCATALOG2026e.pdf
