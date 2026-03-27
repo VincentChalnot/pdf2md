@@ -1,0 +1,22 @@
+[tools]
+go = "1.25.0"
+buf = "latest"
+golangci-lint = "latest"
+
+[tasks.build]
+description = "Build all binaries"
+run = """
+go build -o bin/pdf2md ./cmd/pdf2md/
+"""
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run ./..."
+
+[tasks.test]
+description = "Run tests"
+run = "CGO_ENABLED=1 go test ./..."
+
+[tasks.docker-build]
+description = "Build Docker image for cafi-server"
+run = "docker build -t pdf2md ."
