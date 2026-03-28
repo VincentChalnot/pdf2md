@@ -36,15 +36,19 @@ func NewServer(doc *model.Document, port int) (*Server, error) {
 
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe() error {
+	addr := fmt.Sprintf(":%d", s.Port)
+	fmt.Printf("Inspect server listening on http://localhost%s\n", addr)
+	return http.ListenAndServe(addr, s.Handler())
+}
+
+// Handler returns the HTTP handler for the inspect server.
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/page/", s.handlePage)
 	mux.HandleFunc("/fonts", s.handleFonts)
 	mux.HandleFunc("/outline", s.handleOutline)
-
-	addr := fmt.Sprintf(":%d", s.Port)
-	fmt.Printf("Inspect server listening on http://localhost%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+	return mux
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
