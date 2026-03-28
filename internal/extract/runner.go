@@ -26,7 +26,7 @@ func RunPdfToHTML(pdfPath string, xmlCache string) (string, func(), error) {
 
 	xmlPath := filepath.Join(tmpDir, "output.xml")
 
-	cmd := exec.Command("pdftohtml", "-xml", "-nodrm", "-i", "-noroundcoord", "-hidden", pdfPath, xmlPath)
+	cmd := exec.Command("pdftohtml", "-xml", "-nodrm", "-i", "-noroundcoord", "-hidden", "-zoom", "1.0", pdfPath, xmlPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		os.RemoveAll(tmpDir)

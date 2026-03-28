@@ -87,8 +87,11 @@ func parseXMLReader(r io.Reader) (*model.Document, error) {
 	var pages []model.Page
 
 	for _, xp := range doc.Pages {
-		// Collect fonts from this page.
+		// Collect fonts from this page, keeping the first occurrence of each font ID.
 		for _, xf := range xp.Fonts {
+			if _, exists := fontMap[xf.ID]; exists {
+				continue
+			}
 			size, _ := strconv.ParseFloat(xf.Size, 64)
 			fontMap[xf.ID] = model.FontSpec{
 				ID:     xf.ID,
