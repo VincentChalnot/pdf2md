@@ -4,7 +4,7 @@ package model
 type Document struct {
 	Source  string              `json:"source"`
 	FontMap map[string]FontSpec `json:"font_map"`
-	Outline []OutlineItem       `json:"outline"`
+	Outline []OutlineItem       `json:"outline,omitempty"`
 	Pages   []Page              `json:"pages"`
 }
 
@@ -15,8 +15,8 @@ type FontSpec struct {
 	Family  string   `json:"family"`
 	Color   string   `json:"color"`
 	Role    FontRole `json:"role"`
-	NbChars int      `json:"nb_chars"`
-	NbElems int      `json:"nb_elems"`
+	NbChars int      `json:"nb_chars,omitempty"`
+	NbElems int      `json:"nb_elems,omitempty"`
 }
 
 // FontRole represents the semantic role assigned to a font.
@@ -47,7 +47,7 @@ type Element struct {
 	Width  float64  `json:"width"`
 	Height float64  `json:"height"`
 	FontID string   `json:"font_id"`
-	Role   FontRole `json:"role"`
+	Role   FontRole `json:"role,omitempty"`
 	Text   string   `json:"text"`
 }
 

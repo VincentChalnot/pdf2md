@@ -128,6 +128,43 @@ func TestParseXMLNestedOutline(t *testing.T) {
 	}
 }
 
+func TestParseXMLFontDedup(t *testing.T) {
+	// When the same font ID appears on multiple pages, the first occurrence should be kept.
+	xmlData := `<?xml version="1.0" encoding="UTF-8"?>
+<pdf2xml>
+  <page number="1" position="absolute" top="0" left="0" height="100" width="100">
+    <fontspec id="0" size="12" family="Times" color="#000000"/>
+    <text top="10" left="10" width="80" height="15" font="0">Page one</text>
+  </page>
+  <page number="2" position="absolute" top="0" left="0" height="100" width="100">
+    <fontspec id="0" size="14" family="Arial" color="#ff0000"/>
+    <text top="10" left="10" width="80" height="15" font="0">Page two</text>
+  </page>
+</pdf2xml>`
+
+	doc, err := parseXMLReader(strings.NewReader(xmlData))
+	if err != nil {
+		t.Fatalf("parseXMLReader failed: %v", err)
+	}
+
+	// Should have both pages.
+	if len(doc.Pages) != 2 {
+		t.Fatalf("expected 2 pages, got %d", len(doc.Pages))
+	}
+
+	// Font "0" should retain the first occurrence (size=12, Times).
+	f0 := doc.FontMap["0"]
+	if f0.Size != 12 {
+		t.Errorf("font 0 size = %f, want 12 (first occurrence)", f0.Size)
+	}
+	if f0.Family != "Times" {
+		t.Errorf("font 0 family = %q, want %q (first occurrence)", f0.Family, "Times")
+	}
+	if f0.Color != "#000000" {
+		t.Errorf("font 0 color = %q, want %q (first occurrence)", f0.Color, "#000000")
+	}
+}
+
 func TestStripXMLTags(t *testing.T) {
 	tests := []struct {
 		input string
