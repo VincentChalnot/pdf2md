@@ -1,6 +1,6 @@
 # pdf2md
 
-Convert PDF files into clean, structured JSON for downstream Markdown generation and RAG indexing.
+Convert PDF files into clean, structured output for downstream Markdown generation and RAG indexing.
 
 ## Installation
 
@@ -20,53 +20,49 @@ docker build -t pdf2md .
 
 ## Usage
 
-### Extract
-
-Convert a PDF to structured JSON:
-
 ```bash
-# Output to stdout
-pdf2md extract input.pdf
-
-# Output to file, pretty-printed
-pdf2md extract --pretty input.pdf output.json
-
-# Exclude specific fonts and use cached XML
-pdf2md extract --exclude-fonts "1,5" --xml-cache cached.xml input.pdf output.json
+pdf2md [flags] <filepath>...
 ```
 
-**Flags:**
+Input format is detected from file extension: `.pdf`, `.xml`, `.json`.
+
+The pipeline is: PDF → XML → JSON → HTML → Markdown. The `--format` flag stops the pipeline
+at the requested step and outputs that intermediate format.
+
+### Examples
+
+```bash
+# Convert XML to JSON (pretty-printed)
+pdf2md --format json --pretty input.xml
+
+# Convert XML to HTML (SVG-based visualization)
+pdf2md --format html input.xml > output.html
+
+# Convert PDF to JSON with font exclusions
+pdf2md --format json --exclude-fonts "1,5" input.pdf
+
+# Convert PDF to JSON, caching intermediates
+pdf2md --format json --cache-dir ./cache input.pdf
+
+# Process multiple files
+pdf2md --format html file1.xml file2.xml
+```
+
+### Flags
 
 | Flag | Description | Default |
 |------|-------------|---------|
+| `--format` | Output format: `xml`, `json`, `html`, `markdown` | `markdown` |
+| `--cache-dir` | Directory for intermediate files (kept after run) | |
 | `--exclude-fonts` | Comma-separated font IDs to exclude | |
 | `--toc-source` | TOC source: `auto`, `outline`, or `headings` | `auto` |
-| `--xml-cache` | Path to an existing pdftohtml XML output | |
 | `--pretty` | Pretty-print JSON output | `false` |
 
-### Inspect
+### Format compatibility
 
-Launch a web UI to visually inspect the extraction results:
-
-```bash
-# From a PDF
-pdf2md inspect input.pdf
-
-# From a previously extracted JSON
-pdf2md inspect output.json
-
-# Custom port
-pdf2md inspect --port 3000 input.pdf
-```
-
-**Routes:**
-
-| Route | Description |
-|-------|-------------|
-| `/page/{n}` | HTML debug view of page n |
-| `/page/{n}/raw` | JSON of page n elements |
-| `/fonts` | Font table with roles and character counts |
-| `/outline` | Table of contents view |
+- Input `.pdf` → can output `xml`, `json`, `html`, `markdown`
+- Input `.xml` → can output `json`, `html`, `markdown`
+- Input `.json` → can output `html`, `markdown`
 
 ## License
 
