@@ -4,117 +4,102 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/user/pdf2md/internal/extract"
-	"github.com/user/pdf2md/internal/inspect"
 	"github.com/user/pdf2md/internal/model"
+	"github.com/user/pdf2md/internal/render"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
+	format := flag.String("format", "markdown", "Output format: xml, json, html, markdown")
+	cacheDir := flag.String("cache-dir", "", "Directory for intermediate files (kept after run)")
+	excludeFonts := flag.String("exclude-fonts", "", "Comma-separated font IDs to exclude")
+	tocSource := flag.String("toc-source", "auto", `TOC source: "auto", "outline", or "headings"`)
+	pretty := flag.Bool("pretty", false, "Pretty-print JSON output")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: pdf2md [flags] <filepath>...\n\nFlags:\n")
+		flag.PrintDefaults()
+	}
+
+	flag.Parse()
+
+	if flag.NArg() < 1 {
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	switch os.Args[1] {
-	case "extract":
-		if err := runExtract(os.Args[2:]); err != nil {
+	for _, inputPath := range flag.Args() {
+		if err := processFile(inputPath, *format, *cacheDir, *excludeFonts, *tocSource, *pretty); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-	case "inspect":
-		if err := runInspect(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-	case "help", "-h", "--help":
-		printUsage()
+	}
+}
+
+func processFile(inputPath, format, cacheDir, excludeFontsStr, tocSource string, pretty bool) error {
+	ext := strings.ToLower(filepath.Ext(inputPath))
+
+	// Validate format value.
+	switch format {
+	case "xml", "json", "html", "markdown":
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
-	}
-}
-
-func printUsage() {
-	fmt.Fprintf(os.Stderr, `Usage: pdf2md <command> [flags] <input>
-
-Commands:
-  extract    Convert a PDF to structured JSON
-  inspect    Launch a web UI to inspect a PDF or JSON file
-
-Run 'pdf2md <command> -h' for command-specific help.
-`)
-}
-
-func runExtract(args []string) error {
-	fs := flag.NewFlagSet("extract", flag.ExitOnError)
-	excludeFonts := fs.String("exclude-fonts", "", "Comma-separated font IDs to exclude")
-	tocSource := fs.String("toc-source", "auto", `TOC source: "auto", "outline", or "headings"`)
-	xmlCache := fs.String("xml-cache", "", "Path to existing pdftohtml XML output (skip extraction)")
-	pretty := fs.Bool("pretty", false, "Pretty-print JSON output")
-
-	if err := fs.Parse(args); err != nil {
-		return err
+		return fmt.Errorf("unsupported format: %s (must be xml, json, html, or markdown)", format)
 	}
 
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: pdf2md extract [flags] <input.pdf> [output.json]")
-	}
-
-	inputPath := fs.Arg(0)
-	outputPath := fs.Arg(1) // may be empty
-
-	if strings.HasSuffix(strings.ToLower(inputPath), ".json") {
-		return fmt.Errorf("input file has .json extension — did you mean to use 'inspect'?")
-	}
-
-	doc, err := extractDocument(inputPath, *excludeFonts, *tocSource, *xmlCache)
-	if err != nil {
-		return err
-	}
-
-	var out *os.File
-	if outputPath != "" {
-		out, err = os.Create(outputPath)
-		if err != nil {
-			return fmt.Errorf("creating output file: %w", err)
+	// Validate format compatibility with input type.
+	switch ext {
+	case ".pdf":
+		// PDF can output any format.
+	case ".xml":
+		if format == "xml" {
+			return fmt.Errorf("cannot output xml from xml input (input is already xml)")
 		}
-		defer out.Close()
-	} else {
-		out = os.Stdout
+	case ".json":
+		if format == "xml" || format == "json" {
+			return fmt.Errorf("cannot output %s from json input (pipeline only moves forward)", format)
+		}
+	default:
+		return fmt.Errorf("unsupported input file extension: %s (expected .pdf, .xml, or .json)", ext)
 	}
 
-	enc := json.NewEncoder(out)
-	if *pretty {
-		enc.SetIndent("", "  ")
-	}
-	return enc.Encode(doc)
-}
-
-func runInspect(args []string) error {
-	fs := flag.NewFlagSet("inspect", flag.ExitOnError)
-	port := fs.Int("port", 8080, "HTTP port")
-	excludeFonts := fs.String("exclude-fonts", "", "Comma-separated font IDs to exclude (PDF input only)")
-	tocSource := fs.String("toc-source", "auto", `TOC source: "auto", "outline", or "headings" (PDF input only)`)
-	xmlCache := fs.String("xml-cache", "", "Path to existing pdftohtml XML output (PDF input only)")
-
-	if err := fs.Parse(args); err != nil {
-		return err
+	if format == "markdown" {
+		fmt.Println("markdown output not yet implemented")
+		return nil
 	}
 
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: pdf2md inspect [flags] <input.pdf|input.json>")
+	baseName := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
+
+	// Step 1: PDF → XML
+	var xmlPath string
+	var xmlCleanup func()
+
+	if ext == ".pdf" {
+		var err error
+		xmlPath, xmlCleanup, err = pdfToXML(inputPath, baseName, cacheDir)
+		if err != nil {
+			return err
+		}
+		if xmlCleanup != nil {
+			defer xmlCleanup()
+		}
+	} else if ext == ".xml" {
+		xmlPath = inputPath
 	}
 
-	inputPath := fs.Arg(0)
+	// If format is xml, output the raw XML and stop.
+	if format == "xml" {
+		return outputFile(xmlPath)
+	}
 
+	// Step 2: XML → JSON (Document)
 	var doc *model.Document
 
-	if strings.HasSuffix(strings.ToLower(inputPath), ".json") {
+	if ext == ".json" {
 		data, err := os.ReadFile(inputPath)
 		if err != nil {
 			return fmt.Errorf("reading JSON file: %w", err)
@@ -125,59 +110,134 @@ func runInspect(args []string) error {
 		}
 	} else {
 		var err error
-		doc, err = extractDocument(inputPath, *excludeFonts, *tocSource, *xmlCache)
+		doc, err = xmlToDocument(xmlPath, inputPath, excludeFontsStr, tocSource)
 		if err != nil {
 			return err
 		}
-	}
 
-	srv, err := inspect.NewServer(doc, *port)
-	if err != nil {
-		return err
-	}
-	return srv.ListenAndServe()
-}
-
-func extractDocument(pdfPath, excludeFontsStr, tocSource, xmlCache string) (*model.Document, error) {
-	// Parse exclude fonts.
-	excludeFonts := make(map[string]bool)
-	if excludeFontsStr != "" {
-		for _, id := range strings.Split(excludeFontsStr, ",") {
-			id = strings.TrimSpace(id)
-			if id != "" {
-				excludeFonts[id] = true
+		// Cache JSON if cache-dir is set.
+		if cacheDir != "" {
+			jsonPath := filepath.Join(cacheDir, baseName+".json")
+			if err := writeJSONFile(doc, jsonPath); err != nil {
+				return fmt.Errorf("caching JSON: %w", err)
 			}
 		}
 	}
 
-	// Run pdftohtml or use cached XML.
-	xmlPath, cleanup, err := extract.RunPdfToHTML(pdfPath, xmlCache)
-	if err != nil {
-		return nil, err
-	}
-	if cleanup != nil {
-		defer cleanup()
+	// If format is json, output JSON and stop.
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		if pretty {
+			enc.SetIndent("", "  ")
+		}
+		return enc.Encode(doc)
 	}
 
-	// Parse XML.
+	// Step 3: JSON → HTML
+	if format == "html" {
+		return render.HTML(os.Stdout, doc)
+	}
+
+	return nil
+}
+
+// pdfToXML runs pdftohtml to convert a PDF to XML.
+// If cacheDir is set, the XML is cached there and reused on subsequent runs.
+func pdfToXML(pdfPath, baseName, cacheDir string) (string, func(), error) {
+	if cacheDir != "" {
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			return "", nil, fmt.Errorf("creating cache dir: %w", err)
+		}
+		cachedXML := filepath.Join(cacheDir, baseName+".xml")
+
+		// If cached XML already exists, use it directly.
+		if _, err := os.Stat(cachedXML); err == nil {
+			return cachedXML, nil, nil
+		}
+
+		// Run pdftohtml to temp, then copy to cache.
+		tmpXML, tmpCleanup, err := extract.RunPdfToHTML(pdfPath, "")
+		if err != nil {
+			return "", nil, err
+		}
+		defer tmpCleanup()
+
+		if err := copyFile(tmpXML, cachedXML); err != nil {
+			return "", nil, fmt.Errorf("caching XML: %w", err)
+		}
+		return cachedXML, nil, nil
+	}
+
+	// No cache dir: use temp files with cleanup.
+	return extract.RunPdfToHTML(pdfPath, "")
+}
+
+// xmlToDocument parses XML and applies the full extraction pipeline.
+func xmlToDocument(xmlPath, inputPath, excludeFontsStr, tocSource string) (*model.Document, error) {
+	excludeFonts := parseExcludeFonts(excludeFontsStr)
+
 	doc, err := extract.ParseXML(xmlPath)
 	if err != nil {
 		return nil, err
 	}
 
-	doc.Source = filepath.Base(pdfPath)
-
-	// Clean pipeline.
+	doc.Source = filepath.Base(inputPath)
 	extract.Clean(doc, excludeFonts)
-
-	// Assign font roles.
 	extract.AssignFontRoles(doc, excludeFonts)
-
-	// Apply roles to elements.
 	extract.ApplyRolesToElements(doc)
-
-	// Resolve TOC.
 	extract.ResolveTOC(doc, tocSource)
 
 	return doc, nil
+}
+
+func parseExcludeFonts(s string) map[string]bool {
+	fonts := make(map[string]bool)
+	if s != "" {
+		for _, id := range strings.Split(s, ",") {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				fonts[id] = true
+			}
+		}
+	}
+	return fonts
+}
+
+func outputFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+	defer f.Close()
+	_, err = io.Copy(os.Stdout, f)
+	return err
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func writeJSONFile(doc *model.Document, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(doc)
 }
