@@ -15,10 +15,10 @@ import (
 )
 
 func main() {
-	format := flag.String("format", "markdown", "Output format: xml, json, html, markdown")
+	format := flag.String("format", "markdown", "Output format: bbox, json, html, markdown")
 	cacheDir := flag.String("cache-dir", "", "Directory for intermediate files (kept after run)")
-	excludeFonts := flag.String("exclude-fonts", "", "Comma-separated font IDs to exclude")
-	tocSource := flag.String("toc-source", "auto", `TOC source: "auto", "outline", or "headings"`)
+	bboxCache := flag.String("bbox-cache", "", "Path to existing bbox-layout HTML file to use instead of running pdftotext")
+	minTextHeight := flag.Float64("min-text-height", 2.0, "Minimum word height in PDF units to keep")
 	pretty := flag.Bool("pretty", false, "Pretty-print JSON output")
 
 	flag.Usage = func() {
@@ -34,37 +34,37 @@ func main() {
 	}
 
 	for _, inputPath := range flag.Args() {
-		if err := processFile(inputPath, *format, *cacheDir, *excludeFonts, *tocSource, *pretty); err != nil {
+		if err := processFile(inputPath, *format, *cacheDir, *bboxCache, *minTextHeight, *pretty); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 	}
 }
 
-func processFile(inputPath, format, cacheDir, excludeFontsStr, tocSource string, pretty bool) error {
+func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight float64, pretty bool) error {
 	ext := strings.ToLower(filepath.Ext(inputPath))
 
 	// Validate format value.
 	switch format {
-	case "xml", "json", "html", "markdown":
+	case "bbox", "json", "html", "markdown":
 	default:
-		return fmt.Errorf("unsupported format: %s (must be xml, json, html, or markdown)", format)
+		return fmt.Errorf("unsupported format: %s (must be bbox, json, html, or markdown)", format)
 	}
 
 	// Validate format compatibility with input type.
 	switch ext {
 	case ".pdf":
 		// PDF can output any format.
-	case ".xml":
-		if format == "xml" {
-			return fmt.Errorf("cannot output xml from xml input (input is already xml)")
+	case ".bbox", ".html":
+		if format == "bbox" {
+			return fmt.Errorf("cannot output bbox from bbox input (input is already bbox)")
 		}
 	case ".json":
-		if format == "xml" || format == "json" {
+		if format == "bbox" || format == "json" {
 			return fmt.Errorf("cannot output %s from json input (pipeline only moves forward)", format)
 		}
 	default:
-		return fmt.Errorf("unsupported input file extension: %s (expected .pdf, .xml, or .json)", ext)
+		return fmt.Errorf("unsupported input file extension: %s (expected .pdf, .bbox, .html, or .json)", ext)
 	}
 
 	if format == "markdown" {
@@ -74,29 +74,29 @@ func processFile(inputPath, format, cacheDir, excludeFontsStr, tocSource string,
 
 	baseName := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
 
-	// Step 1: PDF → XML
-	var xmlPath string
-	var xmlCleanup func()
+	// Step 1: PDF → bbox HTML
+	var bboxPath string
+	var bboxCleanup func()
 
 	if ext == ".pdf" {
 		var err error
-		xmlPath, xmlCleanup, err = pdfToXML(inputPath, baseName, cacheDir)
+		bboxPath, bboxCleanup, err = pdfToBBox(inputPath, baseName, cacheDir, bboxCache)
 		if err != nil {
 			return err
 		}
-		if xmlCleanup != nil {
-			defer xmlCleanup()
+		if bboxCleanup != nil {
+			defer bboxCleanup()
 		}
-	} else if ext == ".xml" {
-		xmlPath = inputPath
+	} else if ext == ".bbox" || ext == ".html" {
+		bboxPath = inputPath
 	}
 
-	// If format is xml, output the raw XML and stop.
-	if format == "xml" {
-		return outputFile(xmlPath)
+	// If format is bbox, output the raw bbox HTML and stop.
+	if format == "bbox" {
+		return outputFile(bboxPath)
 	}
 
-	// Step 2: XML → JSON (Document)
+	// Step 2: bbox HTML → JSON (Document)
 	var doc *model.Document
 
 	if ext == ".json" {
@@ -110,7 +110,7 @@ func processFile(inputPath, format, cacheDir, excludeFontsStr, tocSource string,
 		}
 	} else {
 		var err error
-		doc, err = xmlToDocument(xmlPath, inputPath, excludeFontsStr, tocSource)
+		doc, err = bboxToDocument(bboxPath, inputPath, minTextHeight)
 		if err != nil {
 			return err
 		}
@@ -141,66 +141,60 @@ func processFile(inputPath, format, cacheDir, excludeFontsStr, tocSource string,
 	return nil
 }
 
-// pdfToXML runs pdftohtml to convert a PDF to XML.
-// If cacheDir is set, the XML is cached there and reused on subsequent runs.
-func pdfToXML(pdfPath, baseName, cacheDir string) (string, func(), error) {
+// pdfToBBox runs pdftotext to convert a PDF to bbox-layout HTML.
+// If cacheDir is set, the HTML is cached there and reused on subsequent runs.
+// If bboxCache is set, it is used directly instead of running pdftotext.
+func pdfToBBox(pdfPath, baseName, cacheDir, bboxCache string) (string, func(), error) {
+	// If bboxCache is explicitly provided via flag, use it.
+	if bboxCache != "" {
+		if _, err := os.Stat(bboxCache); err != nil {
+			return "", nil, fmt.Errorf("bbox-cache file not found: %w", err)
+		}
+		return bboxCache, func() {}, nil
+	}
+
 	if cacheDir != "" {
 		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 			return "", nil, fmt.Errorf("creating cache dir: %w", err)
 		}
-		cachedXML := filepath.Join(cacheDir, baseName+".xml")
+		cachedBBox := filepath.Join(cacheDir, baseName+".bbox")
 
-		// If cached XML already exists, use it directly.
-		if _, err := os.Stat(cachedXML); err == nil {
-			return cachedXML, nil, nil
+		// If cached bbox already exists, use it directly.
+		if _, err := os.Stat(cachedBBox); err == nil {
+			return cachedBBox, nil, nil
 		}
 
-		// Run pdftohtml to temp, then copy to cache.
-		tmpXML, tmpCleanup, err := extract.RunPdfToHTML(pdfPath, "")
+		// Run pdftotext to temp, then copy to cache.
+		tmpBBox, tmpCleanup, err := extract.RunPdfToText(pdfPath, "")
 		if err != nil {
 			return "", nil, err
 		}
 		defer tmpCleanup()
 
-		if err := copyFile(tmpXML, cachedXML); err != nil {
-			return "", nil, fmt.Errorf("caching XML: %w", err)
+		if err := copyFile(tmpBBox, cachedBBox); err != nil {
+			return "", nil, fmt.Errorf("caching bbox: %w", err)
 		}
-		return cachedXML, nil, nil
+		return cachedBBox, nil, nil
 	}
 
 	// No cache dir: use temp files with cleanup.
-	return extract.RunPdfToHTML(pdfPath, "")
+	return extract.RunPdfToText(pdfPath, "")
 }
 
-// xmlToDocument parses XML and applies the full extraction pipeline.
-func xmlToDocument(xmlPath, inputPath, excludeFontsStr, tocSource string) (*model.Document, error) {
-	excludeFonts := parseExcludeFonts(excludeFontsStr)
-
-	doc, err := extract.ParseXML(xmlPath)
+// bboxToDocument parses bbox HTML and applies the full extraction pipeline.
+func bboxToDocument(bboxPath, inputPath string, minTextHeight float64) (*model.Document, error) {
+	doc, err := extract.ParseBBoxHTML(bboxPath)
 	if err != nil {
 		return nil, err
 	}
 
 	doc.Source = filepath.Base(inputPath)
-	extract.Clean(doc, excludeFonts)
-	extract.AssignFontRoles(doc, excludeFonts)
-	extract.ApplyRolesToElements(doc)
-	extract.ResolveTOC(doc, tocSource)
+	extract.Clean(doc, minTextHeight)
+	extract.AssignFontRoles(doc)
+	extract.ApplyRolesToLines(doc)
+	extract.EstablishReadingOrder(doc)
 
 	return doc, nil
-}
-
-func parseExcludeFonts(s string) map[string]bool {
-	fonts := make(map[string]bool)
-	if s != "" {
-		for _, id := range strings.Split(s, ",") {
-			id = strings.TrimSpace(id)
-			if id != "" {
-				fonts[id] = true
-			}
-		}
-	}
-	return fonts
 }
 
 func outputFile(path string) error {
