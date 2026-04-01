@@ -28,14 +28,14 @@ jobs:
       - name: Generate HTML from test fixtures
         run: |
           mkdir -p output
-          for f in test/*.xml; do
-            ./pdf2md --format html "$f" > "output/$(basename "${f%.xml}.html")"
+          for f in test/*.html; do
+            ./pdf2md --format html "$f" > "output/$(basename "${f%.html}.rendered.html")"
           done
 
       - name: Generate JSON from test fixtures
         run: |
-          for f in test/*.xml; do
-            ./pdf2md --format json --pretty "$f" > "output/$(basename "${f%.xml}.json")"
+          for f in test/*.html; do
+            ./pdf2md --format json --pretty "$f" > "output/$(basename "${f%.html}.json")"
           done
 
       - name: Deploy to Cloudflare Pages

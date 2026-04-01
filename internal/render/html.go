@@ -10,7 +10,7 @@ import (
 
 // HTML writes a self-contained HTML document with SVG-based page rendering.
 // Each page is rendered as an inline SVG with exact dimensions from the document.
-// Text elements use textLength and lengthAdjust to fit within their bounding boxes.
+// Lines use textLength and lengthAdjust to fit within their bounding boxes.
 func HTML(w io.Writer, doc *model.Document) error {
 	if _, err := fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
@@ -40,13 +40,18 @@ func HTML(w io.Writer, doc *model.Document) error {
 			page.Width, page.Height, page.Width, page.Height); err != nil {
 			return err
 		}
-		for _, el := range page.Elements {
-			y := el.Top + el.Height
-			if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" textLength=\"%g\" lengthAdjust=\"spacingAndGlyphs\" class=\"%s\">%s</text>\n",
-				el.Left, y, el.Width, string(el.Role), html.EscapeString(el.Text)); err != nil {
-				return err
+
+		for _, flow := range page.Flows {
+			for _, line := range flow.Lines {
+				// Y-coordinate is at the baseline (yMax).
+				y := line.YMax
+				if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" textLength=\"%g\" lengthAdjust=\"spacingAndGlyphs\" class=\"%s\">%s</text>\n",
+					line.XMin, y, line.XMax-line.XMin, string(line.Role), html.EscapeString(line.Text)); err != nil {
+					return err
+				}
 			}
 		}
+
 		if _, err := fmt.Fprint(w, "</svg>\n</div>\n"); err != nil {
 			return err
 		}

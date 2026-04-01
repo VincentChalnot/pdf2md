@@ -11,183 +11,262 @@ import (
 	"github.com/user/pdf2md/internal/model"
 )
 
-// xmlDoc represents the root <pdf2xml> element.
-type xmlDoc struct {
-	XMLName xml.Name    `xml:"pdf2xml"`
-	Pages   []xmlPage   `xml:"page"`
-	Outline *xmlOutline `xml:"outline"`
+// bboxDoc represents the root structure of pdftotext -bbox-layout output.
+type bboxDoc struct {
+	XMLName xml.Name   `xml:"html"`
+	Head    bboxHead   `xml:"head"`
+	Body    bboxBody   `xml:"body"`
 }
 
-// xmlPage represents a <page> element.
-type xmlPage struct {
-	Number   string       `xml:"number,attr"`
-	Top      string       `xml:"top,attr"`
-	Left     string       `xml:"left,attr"`
-	Height   string       `xml:"height,attr"`
-	Width    string       `xml:"width,attr"`
-	Fonts    []xmlFont    `xml:"fontspec"`
-	Elements []xmlElement `xml:"text"`
+// bboxHead represents the <head> element with metadata.
+type bboxHead struct {
+	Metas []bboxMeta `xml:"meta"`
 }
 
-// xmlFont represents a <fontspec> element.
-type xmlFont struct {
-	ID     string `xml:"id,attr"`
-	Size   string `xml:"size,attr"`
-	Family string `xml:"family,attr"`
-	Color  string `xml:"color,attr"`
+// bboxMeta represents a <meta> element.
+type bboxMeta struct {
+	Name    string `xml:"name,attr"`
+	Content string `xml:"content,attr"`
 }
 
-// xmlElement represents a <text> element.
-type xmlElement struct {
-	Top    string `xml:"top,attr"`
-	Left   string `xml:"left,attr"`
-	Width  string `xml:"width,attr"`
-	Height string `xml:"height,attr"`
-	Font   string `xml:"font,attr"`
-	// InnerXML captures the raw content, including any inline tags like <b>, <i>.
-	InnerXML string `xml:",innerxml"`
+// bboxBody represents the <body> element containing the doc.
+type bboxBody struct {
+	Doc bboxDocElem `xml:"doc"`
 }
 
-// xmlOutline represents an <outline> element which can be nested.
-type xmlOutline struct {
-	Items    []xmlOutlineItem `xml:"item"`
-	Children []xmlOutline     `xml:"outline"`
+// bboxDocElem represents the <doc> element.
+type bboxDocElem struct {
+	Pages []bboxPage `xml:"page"`
 }
 
-// xmlOutlineItem represents an <item> element inside <outline>.
-type xmlOutlineItem struct {
-	Page  string `xml:"page,attr"`
-	Title string `xml:",chardata"`
+// bboxPage represents a <page> element.
+type bboxPage struct {
+	Width  string     `xml:"width,attr"`
+	Height string     `xml:"height,attr"`
+	Flows  []bboxFlow `xml:"flow"`
 }
 
-// ParseXML reads the pdftohtml XML output and returns a model.Document.
-func ParseXML(xmlPath string) (*model.Document, error) {
-	f, err := os.Open(xmlPath)
+// bboxFlow represents a <flow> element.
+type bboxFlow struct {
+	Blocks []bboxBlock `xml:"block"`
+}
+
+// bboxBlock represents a <block> element.
+type bboxBlock struct {
+	XMin  string     `xml:"xMin,attr"`
+	YMin  string     `xml:"yMin,attr"`
+	XMax  string     `xml:"xMax,attr"`
+	YMax  string     `xml:"yMax,attr"`
+	Lines []bboxLine `xml:"line"`
+}
+
+// bboxLine represents a <line> element.
+type bboxLine struct {
+	XMin  string     `xml:"xMin,attr"`
+	YMin  string     `xml:"yMin,attr"`
+	XMax  string     `xml:"xMax,attr"`
+	YMax  string     `xml:"yMax,attr"`
+	Words []bboxWord `xml:"word"`
+}
+
+// bboxWord represents a <word> element.
+type bboxWord struct {
+	XMin string `xml:"xMin,attr"`
+	YMin string `xml:"yMin,attr"`
+	XMax string `xml:"xMax,attr"`
+	YMax string `xml:"yMax,attr"`
+	Text string `xml:",chardata"`
+}
+
+// ParseBBoxHTML reads the pdftotext -bbox-layout HTML output and returns a model.Document.
+func ParseBBoxHTML(htmlPath string) (*model.Document, error) {
+	f, err := os.Open(htmlPath)
 	if err != nil {
-		return nil, fmt.Errorf("opening XML file: %w", err)
+		return nil, fmt.Errorf("opening HTML file: %w", err)
 	}
 	defer f.Close()
 
-	return parseXMLReader(f)
+	return parseBBoxReader(f)
 }
 
-func parseXMLReader(r io.Reader) (*model.Document, error) {
-	var doc xmlDoc
-	decoder := xml.NewDecoder(r)
-	// pdftohtml may produce non-UTF8 content; be lenient.
+func parseBBoxReader(r io.Reader) (*model.Document, error) {
+	// Read all content and sanitize illegal XML characters.
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading HTML: %w", err)
+	}
+
+	// Remove illegal XML characters (control characters except tab, newline, carriage return).
+	sanitized := make([]byte, 0, len(data))
+	for _, b := range data {
+		// Allow tab (0x09), newline (0x0A), carriage return (0x0D), and printable characters.
+		if b == 0x09 || b == 0x0A || b == 0x0D || b >= 0x20 {
+			sanitized = append(sanitized, b)
+		}
+	}
+
+	var doc bboxDoc
+	decoder := xml.NewDecoder(strings.NewReader(string(sanitized)))
+	// pdftotext may produce non-UTF8 content; be lenient.
 	decoder.Strict = false
 	decoder.AutoClose = xml.HTMLAutoClose
 	decoder.Entity = xml.HTMLEntity
 
 	if err := decoder.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("decoding XML: %w", err)
+		return nil, fmt.Errorf("decoding HTML: %w", err)
 	}
 
-	fontMap := make(map[string]model.FontSpec)
+	// Extract metadata from <meta> tags.
+	meta := make(map[string]string)
+	for _, m := range doc.Head.Metas {
+		if m.Name != "" && m.Content != "" {
+			meta[m.Name] = m.Content
+		}
+	}
+
 	var pages []model.Page
 
-	for _, xp := range doc.Pages {
-		// Collect fonts from this page, keeping the first occurrence of each font ID.
-		for _, xf := range xp.Fonts {
-			if _, exists := fontMap[xf.ID]; exists {
-				continue
-			}
-			size, _ := strconv.ParseFloat(xf.Size, 64)
-			fontMap[xf.ID] = model.FontSpec{
-				ID:     xf.ID,
-				Size:   size,
-				Family: xf.Family,
-				Color:  xf.Color,
-				Role:   model.RoleUnknown,
-			}
-		}
-
-		pageNum, _ := strconv.Atoi(xp.Number)
+	for pageNum, xp := range doc.Body.Doc.Pages {
 		pageW, _ := strconv.ParseFloat(xp.Width, 64)
 		pageH, _ := strconv.ParseFloat(xp.Height, 64)
 
-		var elements []model.Element
-		for _, xe := range xp.Elements {
-			top, _ := strconv.ParseFloat(xe.Top, 64)
-			left, _ := strconv.ParseFloat(xe.Left, 64)
-			width, _ := strconv.ParseFloat(xe.Width, 64)
-			height, _ := strconv.ParseFloat(xe.Height, 64)
+		var flows []model.Flow
+		for _, xf := range xp.Flows {
+			var lines []model.Line
+			var flowXMin, flowYMin, flowXMax, flowYMax float64
+			firstBlock := true
 
-			text := stripXMLTags(xe.InnerXML)
-			elements = append(elements, model.Element{
-				Top:    top,
-				Left:   left,
-				Width:  width,
-				Height: height,
-				FontID: xe.Font,
-				Text:   text,
-			})
+			for _, xb := range xf.Blocks {
+				blockXMin, _ := strconv.ParseFloat(xb.XMin, 64)
+				blockYMin, _ := strconv.ParseFloat(xb.YMin, 64)
+				blockXMax, _ := strconv.ParseFloat(xb.XMax, 64)
+				blockYMax, _ := strconv.ParseFloat(xb.YMax, 64)
+
+				// Update flow bounding box.
+				if firstBlock {
+					flowXMin = blockXMin
+					flowYMin = blockYMin
+					flowXMax = blockXMax
+					flowYMax = blockYMax
+					firstBlock = false
+				} else {
+					if blockXMin < flowXMin {
+						flowXMin = blockXMin
+					}
+					if blockYMin < flowYMin {
+						flowYMin = blockYMin
+					}
+					if blockXMax > flowXMax {
+						flowXMax = blockXMax
+					}
+					if blockYMax > flowYMax {
+						flowYMax = blockYMax
+					}
+				}
+
+				for _, xl := range xb.Lines {
+					lineXMin, _ := strconv.ParseFloat(xl.XMin, 64)
+					lineYMin, _ := strconv.ParseFloat(xl.YMin, 64)
+					lineXMax, _ := strconv.ParseFloat(xl.XMax, 64)
+					lineYMax, _ := strconv.ParseFloat(xl.YMax, 64)
+
+					var words []model.Word
+					for _, xw := range xl.Words {
+						wordXMin, _ := strconv.ParseFloat(xw.XMin, 64)
+						wordYMin, _ := strconv.ParseFloat(xw.YMin, 64)
+						wordXMax, _ := strconv.ParseFloat(xw.XMax, 64)
+						wordYMax, _ := strconv.ParseFloat(xw.YMax, 64)
+
+						words = append(words, model.Word{
+							XMin: wordXMin,
+							YMin: wordYMin,
+							XMax: wordXMax,
+							YMax: wordYMax,
+							Text: strings.TrimSpace(xw.Text),
+						})
+					}
+
+					// Compute font size as median word height.
+					fontSize := computeMedianWordHeight(words)
+
+					// Join words with single space.
+					var textParts []string
+					for _, w := range words {
+						if w.Text != "" {
+							textParts = append(textParts, w.Text)
+						}
+					}
+					text := strings.Join(textParts, " ")
+
+					lines = append(lines, model.Line{
+						XMin:     lineXMin,
+						YMin:     lineYMin,
+						XMax:     lineXMax,
+						YMax:     lineYMax,
+						FontSize: fontSize,
+						Text:     text,
+					})
+				}
+			}
+
+			// Only add flow if it has lines.
+			if len(lines) > 0 {
+				flows = append(flows, model.Flow{
+					XMin:  flowXMin,
+					YMin:  flowYMin,
+					XMax:  flowXMax,
+					YMax:  flowYMax,
+					Lines: lines,
+				})
+			}
 		}
 
 		pages = append(pages, model.Page{
-			Number:   pageNum,
-			Width:    pageW,
-			Height:   pageH,
-			Elements: elements,
+			Number: pageNum + 1, // 1-indexed
+			Width:  pageW,
+			Height: pageH,
+			Flows:  flows,
 		})
 	}
 
-	var outline []model.OutlineItem
-	if doc.Outline != nil {
-		outline = parseOutlineLevel(doc.Outline)
-	}
-
 	return &model.Document{
-		FontMap: fontMap,
-		Outline: outline,
+		Meta:    meta,
+		FontMap: make(map[string]model.FontSpec), // Will be populated by headingmap
 		Pages:   pages,
 	}, nil
 }
 
-// parseOutlineLevel recursively parses nested outline elements.
-func parseOutlineLevel(xo *xmlOutline) []model.OutlineItem {
-	var items []model.OutlineItem
-
-	for i, xi := range xo.Items {
-		page, _ := strconv.Atoi(xi.Page)
-		item := model.OutlineItem{
-			Title: strings.TrimSpace(xi.Title),
-			Page:  page,
-		}
-
-		// Each item's children come from the corresponding nested <outline> at the same index.
-		if i < len(xo.Children) {
-			item.Children = parseOutlineLevel(&xo.Children[i])
-		}
-
-		items = append(items, item)
+// computeMedianWordHeight computes the median height (yMax - yMin) of words.
+func computeMedianWordHeight(words []model.Word) float64 {
+	if len(words) == 0 {
+		return 0
 	}
 
-	// Handle any remaining nested outlines that don't correspond to items.
-	for i := len(xo.Items); i < len(xo.Children); i++ {
-		childItems := parseOutlineLevel(&xo.Children[i])
-		items = append(items, childItems...)
-	}
-
-	return items
-}
-
-// stripXMLTags removes inline XML/HTML tags from a string (e.g. <b>, <i>).
-func stripXMLTags(s string) string {
-	var b strings.Builder
-	inTag := false
-	for _, r := range s {
-		if r == '<' {
-			inTag = true
-			continue
-		}
-		if r == '>' {
-			inTag = false
-			continue
-		}
-		if !inTag {
-			b.WriteRune(r)
+	var heights []float64
+	for _, w := range words {
+		h := w.YMax - w.YMin
+		if h > 0 {
+			heights = append(heights, h)
 		}
 	}
-	return b.String()
+
+	if len(heights) == 0 {
+		return 0
+	}
+
+	// Sort heights to find median.
+	// Simple bubble sort for small arrays.
+	for i := 0; i < len(heights); i++ {
+		for j := i + 1; j < len(heights); j++ {
+			if heights[i] > heights[j] {
+				heights[i], heights[j] = heights[j], heights[i]
+			}
+		}
+	}
+
+	mid := len(heights) / 2
+	if len(heights)%2 == 0 {
+		return (heights[mid-1] + heights[mid]) / 2
+	}
+	return heights[mid]
 }

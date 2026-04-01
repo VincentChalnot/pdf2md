@@ -3,20 +3,17 @@ package model
 // Document represents a parsed PDF document.
 type Document struct {
 	Source  string              `json:"source"`
+	Meta    map[string]string   `json:"meta,omitempty"`
 	FontMap map[string]FontSpec `json:"font_map"`
-	Outline []OutlineItem       `json:"outline,omitempty"`
 	Pages   []Page              `json:"pages"`
 }
 
-// FontSpec describes a font used in the document.
+// FontSpec describes a font size bucket used in the document.
 type FontSpec struct {
-	ID      string   `json:"id"`
 	Size    float64  `json:"size"`
-	Family  string   `json:"family"`
-	Color   string   `json:"color"`
 	Role    FontRole `json:"role"`
 	NbChars int      `json:"nb_chars,omitempty"`
-	NbElems int      `json:"nb_elems,omitempty"`
+	NbLines int      `json:"nb_lines,omitempty"`
 }
 
 // FontRole represents the semantic role assigned to a font.
@@ -34,26 +31,37 @@ const (
 
 // Page represents a single page in the document.
 type Page struct {
-	Number   int       `json:"number"`
-	Width    float64   `json:"width"`
-	Height   float64   `json:"height"`
-	Elements []Element `json:"elements"`
+	Number int     `json:"number"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+	Flows  []Flow  `json:"flows"`
 }
 
-// Element represents a text element on a page.
-type Element struct {
-	Top    float64  `json:"top"`
-	Left   float64  `json:"left"`
-	Width  float64  `json:"width"`
-	Height float64  `json:"height"`
-	FontID string   `json:"font_id"`
-	Role   FontRole `json:"role,omitempty"`
-	Text   string   `json:"text"`
+// Flow represents a grouped collection of text blocks.
+type Flow struct {
+	XMin  float64 `json:"xMin"`
+	YMin  float64 `json:"yMin"`
+	XMax  float64 `json:"xMax"`
+	YMax  float64 `json:"yMax"`
+	Lines []Line  `json:"lines"`
 }
 
-// OutlineItem represents an entry in the document's table of contents.
-type OutlineItem struct {
-	Title    string        `json:"title"`
-	Page     int           `json:"page"`
-	Children []OutlineItem `json:"children,omitempty"`
+// Line represents a visual line of text.
+type Line struct {
+	XMin     float64  `json:"xMin"`
+	YMin     float64  `json:"yMin"`
+	XMax     float64  `json:"xMax"`
+	YMax     float64  `json:"yMax"`
+	FontSize float64  `json:"fontSize"`
+	Role     FontRole `json:"role,omitempty"`
+	Text     string   `json:"text"`
+}
+
+// Word represents a word parsed from bbox-layout (used during processing, not in final model).
+type Word struct {
+	XMin float64
+	YMin float64
+	XMax float64
+	YMax float64
+	Text string
 }
