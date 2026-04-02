@@ -8,23 +8,34 @@ import (
 	"github.com/user/pdf2md/internal/model"
 )
 
+func makeDoc(source string, pages []model.Page) *model.Document {
+	return &model.Document{
+		Source:  source,
+		FontMap: make(map[string]model.FontSpec),
+		Pages:   pages,
+	}
+}
+
 func TestHTMLBasicOutput(t *testing.T) {
-	doc := &model.Document{
-		Source: "test.pdf",
-		FontMap: map[string]model.FontSpec{
-			"0": {ID: "0", Size: 12, Family: "Times", Role: model.RoleBody},
-			"1": {ID: "1", Size: 24, Family: "Arial", Role: model.RoleH1},
-		},
-		Pages: []model.Page{
-			{
-				Number: 1, Width: 800, Height: 600,
-				Elements: []model.Element{
-					{Top: 10, Left: 20, Width: 200, Height: 30, FontID: "1", Role: model.RoleH1, Text: "Title"},
-					{Top: 50, Left: 20, Width: 400, Height: 20, FontID: "0", Role: model.RoleBody, Text: "Body text"},
+	doc := makeDoc("test.pdf", []model.Page{
+		{
+			Number: 1, Width: 800, Height: 600,
+			Flows: []model.Flow{
+				{
+					XMin: 20, YMin: 10, XMax: 220, YMax: 40,
+					Lines: []model.Line{
+						{XMin: 20, YMin: 10, XMax: 220, YMax: 40, FontSize: 24, Role: model.RoleH1, Text: "Title"},
+					},
+				},
+				{
+					XMin: 20, YMin: 50, XMax: 420, YMax: 70,
+					Lines: []model.Line{
+						{XMin: 20, YMin: 50, XMax: 420, YMax: 70, FontSize: 12, Role: model.RoleBody, Text: "Body text"},
+					},
 				},
 			},
 		},
-	}
+	})
 
 	var buf bytes.Buffer
 	if err := HTML(&buf, doc); err != nil {
@@ -79,6 +90,16 @@ func TestHTMLBasicOutput(t *testing.T) {
 		t.Error("output should contain class body")
 	}
 
+	// Check font-size attribute.
+	if !strings.Contains(out, "font-size=") {
+		t.Error("output should contain font-size attribute")
+	}
+
+	// Check letter-spacing attribute.
+	if !strings.Contains(out, `letter-spacing="0.02em"`) {
+		t.Error("output should contain letter-spacing attribute")
+	}
+
 	// Check no JavaScript.
 	if strings.Contains(out, "<script") {
 		t.Error("output must not contain JavaScript")
@@ -86,17 +107,19 @@ func TestHTMLBasicOutput(t *testing.T) {
 }
 
 func TestHTMLTextPositioning(t *testing.T) {
-	doc := &model.Document{
-		Source: "pos.pdf",
-		Pages: []model.Page{
-			{
-				Number: 1, Width: 100, Height: 200,
-				Elements: []model.Element{
-					{Top: 10, Left: 5, Width: 80, Height: 15, Role: model.RoleBody, Text: "Hello"},
+	doc := makeDoc("pos.pdf", []model.Page{
+		{
+			Number: 1, Width: 100, Height: 200,
+			Flows: []model.Flow{
+				{
+					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
+					Lines: []model.Line{
+						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "Hello"},
+					},
 				},
 			},
 		},
-	}
+	})
 
 	var buf bytes.Buffer
 	if err := HTML(&buf, doc); err != nil {
@@ -105,30 +128,42 @@ func TestHTMLTextPositioning(t *testing.T) {
 
 	out := buf.String()
 
-	// y should be Top + Height = 10 + 15 = 25
 	if !strings.Contains(out, `x="5"`) {
-		t.Error("x should be element.Left (5)")
+		t.Error("x should be line.XMin (5)")
 	}
 	if !strings.Contains(out, `y="25"`) {
-		t.Error("y should be element.Top + element.Height (25)")
+		t.Error("y should be line.YMax (25)")
 	}
 	if !strings.Contains(out, `textLength="80"`) {
-		t.Error("textLength should be element.Width (80)")
+		t.Error("textLength should be line.XMax - line.XMin (80)")
 	}
 }
 
 func TestHTMLMultiplePages(t *testing.T) {
-	doc := &model.Document{
-		Source: "multi.pdf",
-		Pages: []model.Page{
-			{Number: 1, Width: 100, Height: 200, Elements: []model.Element{
-				{Top: 10, Left: 5, Width: 80, Height: 15, Role: model.RoleBody, Text: "Page 1"},
-			}},
-			{Number: 2, Width: 100, Height: 200, Elements: []model.Element{
-				{Top: 10, Left: 5, Width: 80, Height: 15, Role: model.RoleBody, Text: "Page 2"},
-			}},
+	doc := makeDoc("multi.pdf", []model.Page{
+		{
+			Number: 1, Width: 100, Height: 200,
+			Flows: []model.Flow{
+				{
+					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
+					Lines: []model.Line{
+						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "Page 1"},
+					},
+				},
+			},
 		},
-	}
+		{
+			Number: 2, Width: 100, Height: 200,
+			Flows: []model.Flow{
+				{
+					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
+					Lines: []model.Line{
+						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "Page 2"},
+					},
+				},
+			},
+		},
+	})
 
 	var buf bytes.Buffer
 	if err := HTML(&buf, doc); err != nil {
@@ -145,14 +180,19 @@ func TestHTMLMultiplePages(t *testing.T) {
 }
 
 func TestHTMLEscaping(t *testing.T) {
-	doc := &model.Document{
-		Source: "test<>&.pdf",
-		Pages: []model.Page{
-			{Number: 1, Width: 100, Height: 100, Elements: []model.Element{
-				{Top: 10, Left: 5, Width: 80, Height: 15, Role: model.RoleBody, Text: "a < b & c > d"},
-			}},
+	doc := makeDoc("test<>&.pdf", []model.Page{
+		{
+			Number: 1, Width: 100, Height: 100,
+			Flows: []model.Flow{
+				{
+					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
+					Lines: []model.Line{
+						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "a < b & c > d"},
+					},
+				},
+			},
 		},
-	}
+	})
 
 	var buf bytes.Buffer
 	if err := HTML(&buf, doc); err != nil {
@@ -164,15 +204,12 @@ func TestHTMLEscaping(t *testing.T) {
 		t.Error("source name should be HTML-escaped in title")
 	}
 	if !strings.Contains(out, "a &lt; b &amp; c &gt; d") {
-		t.Error("element text should be HTML-escaped")
+		t.Error("line text should be HTML-escaped")
 	}
 }
 
 func TestHTMLEmptyDocument(t *testing.T) {
-	doc := &model.Document{
-		Source: "empty.pdf",
-		Pages: []model.Page{},
-	}
+	doc := makeDoc("empty.pdf", []model.Page{})
 
 	var buf bytes.Buffer
 	if err := HTML(&buf, doc); err != nil {
@@ -185,5 +222,68 @@ func TestHTMLEmptyDocument(t *testing.T) {
 	}
 	if !strings.Contains(out, "</html>") {
 		t.Error("empty document should still close HTML")
+	}
+}
+
+func TestHTMLFontSizes(t *testing.T) {
+	doc := makeDoc("sizes.pdf", []model.Page{
+		{
+			Number: 1, Width: 100, Height: 200,
+			Flows: []model.Flow{
+				{
+					XMin: 5, YMin: 10, XMax: 85, YMax: 50,
+					Lines: []model.Line{
+						{XMin: 5, YMin: 10, XMax: 85, YMax: 50, FontSize: 24, Role: model.RoleH1, Text: "Big"},
+					},
+				},
+				{
+					XMin: 5, YMin: 60, XMax: 85, YMax: 70,
+					Lines: []model.Line{
+						{XMin: 5, YMin: 60, XMax: 85, YMax: 70, FontSize: 8, Role: model.RoleSmall, Text: "Small"},
+					},
+				},
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := HTML(&buf, doc); err != nil {
+		t.Fatalf("HTML() error: %v", err)
+	}
+
+	out := buf.String()
+
+	// Font-size should be (YMax - YMin) * 0.9
+	// For "Big": (50-10)*0.9 = 36
+	if !strings.Contains(out, `font-size="36"`) {
+		t.Error("Big text should have font-size 36")
+	}
+	// For "Small": (70-60)*0.9 = 9
+	if !strings.Contains(out, `font-size="9"`) {
+		t.Error("Small text should have font-size 9")
+	}
+}
+
+func TestHTMLViewPortSVG(t *testing.T) {
+	doc := makeDoc("viewport.pdf", []model.Page{
+		{
+			Number: 1, Width: 500, Height: 300,
+			Flows: []model.Flow{},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := HTML(&buf, doc); err != nil {
+		t.Fatalf("HTML() error: %v", err)
+	}
+
+	out := buf.String()
+
+	// SVGs should have viewport-relative sizing via CSS
+	if !strings.Contains(out, "width: 100%") {
+		t.Error("SVG CSS should have width: 100%")
+	}
+	if !strings.Contains(out, "height: auto") {
+		t.Error("SVG CSS should have height: auto")
 	}
 }

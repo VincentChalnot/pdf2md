@@ -1,7 +1,6 @@
 package extract
 
 import (
-	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -301,16 +300,4 @@ func orderFlows(flows []model.Flow, groups []columnGroup) []model.Flow {
 	}
 
 	return result
-}
-
-// DEBUG: String representation for debugging.
-func debugFlow(flow model.Flow) string {
-	if len(flow.Lines) == 0 {
-		return fmt.Sprintf("Flow[empty]")
-	}
-	preview := flow.Lines[0].Text
-	if len(preview) > 30 {
-		preview = preview[:30] + "..."
-	}
-	return fmt.Sprintf("Flow[y=%.1f x=%.1f: %s]", flow.YMin, flow.XMin, preview)
 }

@@ -13,9 +13,9 @@ import (
 
 // bboxDoc represents the root structure of pdftotext -bbox-layout output.
 type bboxDoc struct {
-	XMLName xml.Name   `xml:"html"`
-	Head    bboxHead   `xml:"head"`
-	Body    bboxBody   `xml:"body"`
+	XMLName xml.Name `xml:"html"`
+	Head    bboxHead `xml:"head"`
+	Body    bboxBody `xml:"body"`
 }
 
 // bboxHead represents the <head> element with metadata.
@@ -84,7 +84,7 @@ func ParseBBoxHTML(htmlPath string) (*model.Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening HTML file: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	return parseBBoxReader(f)
 }

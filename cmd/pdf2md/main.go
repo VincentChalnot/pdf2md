@@ -78,7 +78,8 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 	var bboxPath string
 	var bboxCleanup func()
 
-	if ext == ".pdf" {
+	switch ext {
+	case ".pdf":
 		var err error
 		bboxPath, bboxCleanup, err = pdfToBBox(inputPath, baseName, cacheDir, bboxCache)
 		if err != nil {
@@ -87,7 +88,7 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 		if bboxCleanup != nil {
 			defer bboxCleanup()
 		}
-	} else if ext == ".bbox" || ext == ".html" {
+	case ".bbox", ".html":
 		bboxPath = inputPath
 	}
 
@@ -202,7 +203,7 @@ func outputFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("reading file: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	_, err = io.Copy(os.Stdout, f)
 	return err
 }
@@ -212,13 +213,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer in.Close() //nolint:errcheck
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer out.Close() //nolint:errcheck
 
 	_, err = io.Copy(out, in)
 	return err
@@ -229,8 +230,7 @@ func writeJSONFile(doc *model.Document, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
+	defer f.Close() //nolint:errcheck
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	return enc.Encode(doc)

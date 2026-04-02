@@ -29,12 +29,12 @@ func RunPdfToText(pdfPath string, bboxCache string) (string, func(), error) {
 	cmd := exec.Command("pdftotext", "-bbox-layout", pdfPath, htmlPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		os.RemoveAll(tmpDir) //nolint:errcheck
 		return "", nil, fmt.Errorf("pdftotext failed: %w\noutput: %s", err, string(output))
 	}
 
 	cleanup := func() {
-		os.RemoveAll(tmpDir)
+		os.RemoveAll(tmpDir) //nolint:errcheck
 	}
 	return htmlPath, cleanup, nil
 }

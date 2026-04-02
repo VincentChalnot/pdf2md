@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
 
       - name: Install poppler-utils
         run: sudo apt-get install -y poppler-utils
@@ -25,17 +25,28 @@ jobs:
       - name: Build
         run: go build -o pdf2md ./cmd/pdf2md
 
+      - name: Run tests
+        run: go test ./...
+
       - name: Generate HTML from test fixtures
         run: |
           mkdir -p output
-          for f in test/*.html; do
-            ./pdf2md --format html "$f" > "output/$(basename "${f%.html}.rendered.html")"
+          for bbox in test/*.bbox; do
+            name=$(basename "${bbox%.bbox}")
+            pdf="test/${name}.pdf"
+            if [ -f "$pdf" ]; then
+              ./pdf2md -bbox-cache "$bbox" --format html "$pdf" > "output/${name}.rendered.html"
+            fi
           done
 
       - name: Generate JSON from test fixtures
         run: |
-          for f in test/*.html; do
-            ./pdf2md --format json --pretty "$f" > "output/$(basename "${f%.html}.json")"
+          for bbox in test/*.bbox; do
+            name=$(basename "${bbox%.bbox}")
+            pdf="test/${name}.pdf"
+            if [ -f "$pdf" ]; then
+              ./pdf2md -bbox-cache "$bbox" --format json --pretty "$pdf" > "output/${name}.json"
+            fi
           done
 
       - name: Deploy to Cloudflare Pages
