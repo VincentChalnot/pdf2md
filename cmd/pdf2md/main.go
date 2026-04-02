@@ -67,11 +67,6 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 		return fmt.Errorf("unsupported input file extension: %s (expected .pdf, .bbox, .html, or .json)", ext)
 	}
 
-	if format == "markdown" {
-		fmt.Println("markdown output not yet implemented")
-		return nil
-	}
-
 	baseName := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
 
 	// Step 1: PDF → bbox HTML
@@ -137,6 +132,11 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 	// Step 3: JSON → HTML
 	if format == "html" {
 		return render.HTML(os.Stdout, doc)
+	}
+
+	// Step 4: JSON → Markdown
+	if format == "markdown" {
+		return render.ToMarkdown(os.Stdout, doc)
 	}
 
 	return nil
