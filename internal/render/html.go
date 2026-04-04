@@ -42,16 +42,16 @@ func HTML(w io.Writer, doc *model.Document) error {
 
 	// Flow colors for visual differentiation
 	flowColors := []string{
-		"rgba(0, 180, 160, 0.06)",   // Teal
-		"rgba(147, 51, 234, 0.06)",  // Purple
-		"rgba(34, 197, 94, 0.06)",   // Green
-		"rgba(251, 191, 36, 0.06)",  // Gold
+		"rgba(0, 180, 160, 0.06)",  // Teal
+		"rgba(147, 51, 234, 0.06)", // Purple
+		"rgba(34, 197, 94, 0.06)",  // Green
+		"rgba(251, 191, 36, 0.06)", // Gold
 	}
 	flowStrokeColors := []string{
-		"rgba(0, 180, 160, 0.4)",   // Teal
-		"rgba(147, 51, 234, 0.4)",  // Purple
-		"rgba(34, 197, 94, 0.4)",   // Green
-		"rgba(251, 191, 36, 0.4)",  // Gold
+		"rgba(0, 180, 160, 0.4)",  // Teal
+		"rgba(147, 51, 234, 0.4)", // Purple
+		"rgba(34, 197, 94, 0.4)",  // Green
+		"rgba(251, 191, 36, 0.4)", // Gold
 	}
 
 	for _, page := range doc.Pages {
@@ -97,8 +97,8 @@ func HTML(w io.Writer, doc *model.Document) error {
 				// Block label
 				labelX := block.XMin + 2
 				labelY := block.YMin + 9
-				if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" class=\"debug-label\">B%d (%.1f,%.1f)→(%.1f,%.1f)</text>\n",
-					labelX, labelY, blockIdx, block.XMin, block.YMin, block.XMax, block.YMax); err != nil {
+				if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" class=\"debug-label\">B%d</text>\n",
+					labelX, labelY, blockIdx); err != nil {
 					return err
 				}
 				blockIdx++
