@@ -16,6 +16,10 @@ const (
 	// ColumnGroupingTolerance is the tolerance (in PDF points) for matching
 	// vertical cut positions when grouping bands into layout zones
 	ColumnGroupingTolerance = 8.0
+
+	// HeadingLineHeightThreshold is the maximum line height (in PDF points)
+	// above which a block is considered a heading and excluded from layout detection
+	HeadingLineHeightThreshold = 14.0
 )
 
 // interval represents an occupied range on an axis
@@ -68,18 +72,38 @@ func DetectLayout(page *model.Page) *PageLayout {
 		return &PageLayout{}
 	}
 
-	// Collect all blocks from all flows
+	// Collect all blocks from all flows and mark heading blocks
 	var allBlocks []model.Block
-	for _, flow := range page.Flows {
-		allBlocks = append(allBlocks, flow.Blocks...)
+	for flowIdx, flow := range page.Flows {
+		for blockIdx, block := range flow.Blocks {
+			// Mark heading blocks in the original flow data
+			if isHeadingBlock(&block) {
+				page.Flows[flowIdx].Blocks[blockIdx].IsHeading = true
+				block.IsHeading = true  // Also mark in the copy
+			}
+			allBlocks = append(allBlocks, block)
+		}
 	}
 
 	if len(allBlocks) == 0 {
 		return &PageLayout{}
 	}
 
+	// Filter out heading blocks for layout detection
+	var layoutBlocks []model.Block
+	for _, block := range allBlocks {
+		if !block.IsHeading {
+			layoutBlocks = append(layoutBlocks, block)
+		}
+	}
+
+	// If all blocks are headings, return empty layout
+	if len(layoutBlocks) == 0 {
+		return &PageLayout{}
+	}
+
 	// Step 1: Find horizontal cuts (page-level Y-axis projection)
-	bands, hCuts := findHorizontalBands(allBlocks, page.Width)
+	bands, hCuts := findHorizontalBands(layoutBlocks, page.Width)
 
 	// Step 2: Find vertical cuts for each band (X-axis projection)
 	for _, band := range bands {
@@ -89,7 +113,11 @@ func DetectLayout(page *model.Page) *PageLayout {
 	// Step 3: Group bands by column structure into layout zones
 	zones := groupBandsIntoZones(bands)
 
-	// Step 4: Characterize each zone (compute metrics)
+	// Step 4: Filter horizontal cuts - only keep cuts between zones where
+	// at least one of the adjacent bands is multi-column
+	filteredCuts := filterHorizontalCuts(bands, hCuts)
+
+	// Step 5: Characterize each zone (compute metrics)
 	for i, zone := range zones {
 		zone.Index = i
 		characterizeZone(zone)
@@ -97,8 +125,65 @@ func DetectLayout(page *model.Page) *PageLayout {
 
 	return &PageLayout{
 		Zones:          zones,
-		HorizontalCuts: hCuts,
+		HorizontalCuts: filteredCuts,
 	}
+}
+
+// isHeadingBlock checks if a block contains large text (heading)
+func isHeadingBlock(block *model.Block) bool {
+	if len(block.Lines) == 0 {
+		return false
+	}
+
+	// Compute maximum line height across all lines
+	var maxLineHeight float64
+	for _, line := range block.Lines {
+		lineHeight := line.YMax - line.YMin
+		if lineHeight > maxLineHeight {
+			maxLineHeight = lineHeight
+		}
+	}
+
+	return maxLineHeight > HeadingLineHeightThreshold
+}
+
+// filterHorizontalCuts removes cuts between consecutive mono-column bands
+func filterHorizontalCuts(bands []*HorizontalBand, cuts []HorizontalCut) []HorizontalCut {
+	if len(cuts) == 0 || len(bands) < 2 {
+		return cuts
+	}
+
+	var filtered []HorizontalCut
+
+	for _, cut := range cuts {
+		// Find the two bands on either side of this cut
+		var bandAbove, bandBelow *HorizontalBand
+
+		for i := 0; i < len(bands)-1; i++ {
+			// Check if this cut is between bands[i] and bands[i+1]
+			if bands[i].YMax <= cut.Y && cut.Y <= bands[i+1].YMin {
+				bandAbove = bands[i]
+				bandBelow = bands[i+1]
+				break
+			}
+		}
+
+		// If we found both bands, check if at least one is multi-column
+		if bandAbove != nil && bandBelow != nil {
+			hasAboveCuts := len(bandAbove.VerticalCuts) > 0
+			hasBelowCuts := len(bandBelow.VerticalCuts) > 0
+
+			// Only keep cut if at least one band is multi-column
+			if hasAboveCuts || hasBelowCuts {
+				filtered = append(filtered, cut)
+			}
+		} else {
+			// Keep the cut if we can't determine (shouldn't happen in practice)
+			filtered = append(filtered, cut)
+		}
+	}
+
+	return filtered
 }
 
 // findHorizontalBands performs Y-axis projection and identifies horizontal bands
@@ -238,41 +323,42 @@ func groupBandsIntoZones(bands []*HorizontalBand) []*LayoutZone {
 	}
 
 	var zones []*LayoutZone
+	var currentZone *LayoutZone
 
 	for _, band := range bands {
-		// Single-column bands (no vertical cuts) each form their own zone
-		// Multi-column bands can be grouped if their cuts match
 		hasCuts := len(band.VerticalCuts) > 0
 
-		if !hasCuts {
-			// Single-column band - create its own zone
-			zone := &LayoutZone{
+		if currentZone == nil {
+			// Start first zone
+			currentZone = &LayoutZone{
 				Bands:        []*HorizontalBand{band},
 				VerticalCuts: band.VerticalCuts,
 			}
-			zones = append(zones, zone)
 			continue
 		}
 
-		// Multi-column band - try to find an existing zone with matching cuts
-		matched := false
-		for _, zone := range zones {
-			if cutsMatch(zone.VerticalCuts, band.VerticalCuts) {
-				// Add band to existing zone
-				zone.Bands = append(zone.Bands, band)
-				matched = true
-				break
+		// Check if this band is compatible with the current zone
+		// New rule: bands are compatible if they share at least one vertical cut position
+		if cutsSharePosition(currentZone.VerticalCuts, band.VerticalCuts) {
+			// Add band to current zone
+			currentZone.Bands = append(currentZone.Bands, band)
+			// Keep track of all unique vertical cuts in the zone
+			if hasCuts {
+				currentZone.VerticalCuts = mergeVerticalCuts(currentZone.VerticalCuts, band.VerticalCuts)
 			}
-		}
-
-		if !matched {
-			// Create new zone
-			zone := &LayoutZone{
+		} else {
+			// Close current zone and start a new one
+			zones = append(zones, currentZone)
+			currentZone = &LayoutZone{
 				Bands:        []*HorizontalBand{band},
 				VerticalCuts: band.VerticalCuts,
 			}
-			zones = append(zones, zone)
 		}
+	}
+
+	// Add the last zone
+	if currentZone != nil {
+		zones = append(zones, currentZone)
 	}
 
 	return zones
@@ -297,6 +383,62 @@ func cutsMatch(cuts1, cuts2 []float64) bool {
 	}
 
 	return true
+}
+
+// cutsSharePosition checks if two sets of vertical cuts share at least one position within tolerance
+func cutsSharePosition(cuts1, cuts2 []float64) bool {
+	// Both have no cuts - they are compatible (both single-column)
+	if len(cuts1) == 0 && len(cuts2) == 0 {
+		return true
+	}
+
+	// One has cuts, the other doesn't - not compatible
+	if len(cuts1) == 0 || len(cuts2) == 0 {
+		return false
+	}
+
+	// Check if any cut in cuts1 matches any cut in cuts2 within tolerance
+	for _, c1 := range cuts1 {
+		for _, c2 := range cuts2 {
+			if math.Abs(c1-c2) <= ColumnGroupingTolerance {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// mergeVerticalCuts combines two sets of vertical cuts, merging positions within tolerance
+func mergeVerticalCuts(cuts1, cuts2 []float64) []float64 {
+	if len(cuts1) == 0 {
+		return cuts2
+	}
+	if len(cuts2) == 0 {
+		return cuts1
+	}
+
+	// Start with cuts1
+	result := make([]float64, len(cuts1))
+	copy(result, cuts1)
+
+	// Add cuts from cuts2 that don't match any existing cut
+	for _, c2 := range cuts2 {
+		found := false
+		for _, c1 := range result {
+			if math.Abs(c1-c2) <= ColumnGroupingTolerance {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, c2)
+		}
+	}
+
+	// Sort result
+	sort.Float64s(result)
+	return result
 }
 
 // characterizeZone computes metrics for a layout zone

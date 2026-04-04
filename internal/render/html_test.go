@@ -314,17 +314,20 @@ func TestHTMLDebugOverlays(t *testing.T) {
 			Number: 1, Width: 200, Height: 300,
 			Flows: []model.Flow{
 				makeFlow(10, 20, 190, 100, []model.Block{
+					// Block with heading (line height 20pt > 14pt threshold)
 					makeBlock(10, 20, 90, 50, []model.Line{
-						{XMin: 10, YMin: 20, XMax: 90, YMax: 50, FontSize: 24, Role: model.RoleH1, Text: "Header"},
+						{XMin: 10, YMin: 30, XMax: 90, YMax: 50, FontSize: 24, Role: model.RoleH1, Text: "Header"},
 					}),
+					// Block with normal text (line heights 12pt < 14pt threshold)
 					makeBlock(10, 60, 90, 100, []model.Line{
-						{XMin: 10, YMin: 60, XMax: 90, YMax: 80, FontSize: 12, Role: model.RoleBody, Text: "Line 1"},
-						{XMin: 10, YMin: 80, XMax: 90, YMax: 100, FontSize: 12, Role: model.RoleBody, Text: "Line 2"},
+						{XMin: 10, YMin: 68, XMax: 90, YMax: 80, FontSize: 12, Role: model.RoleBody, Text: "Line 1"},
+						{XMin: 10, YMin: 88, XMax: 90, YMax: 100, FontSize: 12, Role: model.RoleBody, Text: "Line 2"},
 					}),
 				}),
 				makeFlow(100, 20, 190, 50, []model.Block{
+					// Block with normal text (line height 12pt < 14pt threshold)
 					makeBlock(100, 20, 190, 50, []model.Line{
-						{XMin: 100, YMin: 20, XMax: 190, YMax: 50, FontSize: 12, Role: model.RoleBody, Text: "Sidebar"},
+						{XMin: 100, YMin: 38, XMax: 190, YMax: 50, FontSize: 12, Role: model.RoleBody, Text: "Sidebar"},
 					}),
 				}),
 			},
@@ -364,11 +367,15 @@ func TestHTMLDebugOverlays(t *testing.T) {
 	}
 
 	// Check for block rectangles with labels
+	// Note: First block (H1 with 30pt line height) will be marked as heading
 	if !strings.Contains(out, `class="debug-block"`) {
-		t.Error("output should contain debug-block class for block rectangles")
+		t.Error("output should contain debug-block class for non-heading block rectangles")
 	}
-	if !strings.Contains(out, ">B0</text>") {
-		t.Error("output should contain block label B0")
+	if !strings.Contains(out, `class="debug-heading"`) {
+		t.Error("output should contain debug-heading class for heading block")
+	}
+	if !strings.Contains(out, ">H0</text>") {
+		t.Error("output should contain heading label H0 for first block")
 	}
 	if !strings.Contains(out, ">B1</text>") {
 		t.Error("output should contain block label B1")
@@ -410,27 +417,27 @@ func TestHTMLLayoutDetectionOverlays(t *testing.T) {
 			Number: 1, Width: 500, Height: 700,
 			Flows: []model.Flow{
 				makeFlow(50, 50, 450, 400, []model.Block{
-					// Header (single column)
+					// Header (single column) - line height 20pt (> 14pt, will be marked as heading)
 					makeBlock(50, 50, 450, 100, []model.Line{
-						{XMin: 50, YMin: 50, XMax: 450, YMax: 100, FontSize: 24, Role: model.RoleH1, Text: "Title"},
+						{XMin: 50, YMin: 70, XMax: 450, YMax: 90, FontSize: 24, Role: model.RoleH1, Text: "Title"},
 					}),
-					// Body row 1 (two columns)
+					// Body row 1 (two columns) - line height 12pt (< 14pt, normal text)
 					makeBlock(50, 150, 230, 200, []model.Line{
-						{XMin: 50, YMin: 150, XMax: 230, YMax: 200, FontSize: 12, Role: model.RoleBody, Text: "Left column"},
+						{XMin: 50, YMin: 188, XMax: 230, YMax: 200, FontSize: 12, Role: model.RoleBody, Text: "Left column"},
 					}),
 					makeBlock(270, 150, 450, 200, []model.Line{
-						{XMin: 270, YMin: 150, XMax: 450, YMax: 200, FontSize: 12, Role: model.RoleBody, Text: "Right column"},
+						{XMin: 270, YMin: 188, XMax: 450, YMax: 200, FontSize: 12, Role: model.RoleBody, Text: "Right column"},
 					}),
-					// Body row 2 (two columns)
+					// Body row 2 (two columns) - line height 12pt (< 14pt, normal text)
 					makeBlock(50, 250, 230, 300, []model.Line{
-						{XMin: 50, YMin: 250, XMax: 230, YMax: 300, FontSize: 12, Role: model.RoleBody, Text: "Left 2"},
+						{XMin: 50, YMin: 288, XMax: 230, YMax: 300, FontSize: 12, Role: model.RoleBody, Text: "Left 2"},
 					}),
 					makeBlock(270, 250, 450, 300, []model.Line{
-						{XMin: 270, YMin: 250, XMax: 450, YMax: 300, FontSize: 12, Role: model.RoleBody, Text: "Right 2"},
+						{XMin: 270, YMin: 288, XMax: 450, YMax: 300, FontSize: 12, Role: model.RoleBody, Text: "Right 2"},
 					}),
-					// Footer (single column)
+					// Footer (single column) - line height 10pt (< 14pt, normal text)
 					makeBlock(50, 350, 450, 400, []model.Line{
-						{XMin: 50, YMin: 350, XMax: 450, YMax: 400, FontSize: 10, Role: model.RoleSmall, Text: "Footer"},
+						{XMin: 50, YMin: 390, XMax: 450, YMax: 400, FontSize: 10, Role: model.RoleSmall, Text: "Footer"},
 					}),
 				}),
 			},
@@ -459,8 +466,20 @@ func TestHTMLLayoutDetectionOverlays(t *testing.T) {
 	}
 
 	// Check for zone labels with metrics
-	if !strings.Contains(out, "Z0") || !strings.Contains(out, "Z1") || !strings.Contains(out, "Z2") {
-		t.Error("output should contain zone labels Z0, Z1, Z2")
+	// Note: With heading exclusion, we now have:
+	// - Heading block excluded (H1 with 20pt line height)
+	// - Multi-column zone with 2 bands (body rows 1 and 2)
+	// - Footer is single-column mono band
+	// According to new grouping logic:
+	//   - Header is excluded (heading)
+	//   - Two body rows group together (share vertical cut at ~250)
+	//   - Footer is separate zone (mono-column)
+	// So we should have 2 zones (Z0 and Z1), not 3
+	if !strings.Contains(out, "Z0") {
+		t.Error("output should contain zone label Z0")
+	}
+	if !strings.Contains(out, "Z1") {
+		t.Error("output should contain zone label Z1")
 	}
 	if !strings.Contains(out, "bands:") {
 		t.Error("zone labels should contain 'bands:' metric")

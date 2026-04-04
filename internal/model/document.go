@@ -49,11 +49,12 @@ type Flow struct {
 
 // Block represents a text block from the bbox layout.
 type Block struct {
-	XMin  float64 `json:"xMin"`
-	YMin  float64 `json:"yMin"`
-	XMax  float64 `json:"xMax"`
-	YMax  float64 `json:"yMax"`
-	Lines []Line  `json:"lines"`
+	XMin      float64 `json:"xMin"`
+	YMin      float64 `json:"yMin"`
+	XMax      float64 `json:"xMax"`
+	YMax      float64 `json:"yMax"`
+	Lines     []Line  `json:"lines"`
+	IsHeading bool    `json:"isHeading,omitempty"` // True if block contains large text (excluded from layout detection)
 }
 
 // Line represents a visual line of text.
