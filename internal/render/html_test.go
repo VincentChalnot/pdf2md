@@ -402,3 +402,113 @@ func TestHTMLDebugOverlays(t *testing.T) {
 		t.Error("CSS should contain .debug-label style")
 	}
 }
+
+func TestHTMLLayoutDetectionOverlays(t *testing.T) {
+	// Create a page with two-column layout to test layout detection
+	doc := makeDoc("layout-test.pdf", []model.Page{
+		{
+			Number: 1, Width: 500, Height: 700,
+			Flows: []model.Flow{
+				makeFlow(50, 50, 450, 400, []model.Block{
+					// Header (single column)
+					makeBlock(50, 50, 450, 100, []model.Line{
+						{XMin: 50, YMin: 50, XMax: 450, YMax: 100, FontSize: 24, Role: model.RoleH1, Text: "Title"},
+					}),
+					// Body row 1 (two columns)
+					makeBlock(50, 150, 230, 200, []model.Line{
+						{XMin: 50, YMin: 150, XMax: 230, YMax: 200, FontSize: 12, Role: model.RoleBody, Text: "Left column"},
+					}),
+					makeBlock(270, 150, 450, 200, []model.Line{
+						{XMin: 270, YMin: 150, XMax: 450, YMax: 200, FontSize: 12, Role: model.RoleBody, Text: "Right column"},
+					}),
+					// Body row 2 (two columns)
+					makeBlock(50, 250, 230, 300, []model.Line{
+						{XMin: 50, YMin: 250, XMax: 230, YMax: 300, FontSize: 12, Role: model.RoleBody, Text: "Left 2"},
+					}),
+					makeBlock(270, 250, 450, 300, []model.Line{
+						{XMin: 270, YMin: 250, XMax: 450, YMax: 300, FontSize: 12, Role: model.RoleBody, Text: "Right 2"},
+					}),
+					// Footer (single column)
+					makeBlock(50, 350, 450, 400, []model.Line{
+						{XMin: 50, YMin: 350, XMax: 450, YMax: 400, FontSize: 10, Role: model.RoleSmall, Text: "Footer"},
+					}),
+				}),
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := HTML(&buf, doc); err != nil {
+		t.Fatalf("HTML() error: %v", err)
+	}
+
+	out := buf.String()
+
+	// Check for layout detection layers
+	if !strings.Contains(out, `<g class="debug-layout">`) {
+		t.Error("output should contain debug-layout layer for zones")
+	}
+	if !strings.Contains(out, `<g class="debug-band-layer">`) {
+		t.Error("output should contain debug-band-layer")
+	}
+	if !strings.Contains(out, `<g class="debug-horizontal-cuts">`) {
+		t.Error("output should contain debug-horizontal-cuts layer")
+	}
+	if !strings.Contains(out, `<g class="debug-vertical-cuts">`) {
+		t.Error("output should contain debug-vertical-cuts layer")
+	}
+
+	// Check for zone labels with metrics
+	if !strings.Contains(out, "Z0") || !strings.Contains(out, "Z1") || !strings.Contains(out, "Z2") {
+		t.Error("output should contain zone labels Z0, Z1, Z2")
+	}
+	if !strings.Contains(out, "bands:") {
+		t.Error("zone labels should contain 'bands:' metric")
+	}
+	if !strings.Contains(out, "col:") {
+		t.Error("zone labels should contain 'col:' metric")
+	}
+	if !strings.Contains(out, "bhVar:") {
+		t.Error("zone labels should contain 'bhVar:' metric")
+	}
+	if !strings.Contains(out, "cwVar:") {
+		t.Error("zone labels should contain 'cwVar:' metric")
+	}
+
+	// Check for zone rectangles with the layout zone class
+	if !strings.Contains(out, `class="debug-layout-zone"`) {
+		t.Error("output should contain debug-layout-zone class for zone rectangles")
+	}
+
+	// Check for horizontal cut lines
+	if !strings.Contains(out, `class="debug-horizontal-cut"`) {
+		t.Error("output should contain debug-horizontal-cut class")
+	}
+
+	// Check for vertical cut lines (should be present in two-column body)
+	if !strings.Contains(out, `class="debug-vertical-cut"`) {
+		t.Error("output should contain debug-vertical-cut class")
+	}
+
+	// Check for band outline rectangles
+	if !strings.Contains(out, `class="debug-band-outline"`) {
+		t.Error("output should contain debug-band-outline class")
+	}
+
+	// Check CSS styles for layout overlays
+	if !strings.Contains(out, ".debug-layout-zone") {
+		t.Error("CSS should contain .debug-layout-zone style")
+	}
+	if !strings.Contains(out, ".debug-layout-label") {
+		t.Error("CSS should contain .debug-layout-label style")
+	}
+	if !strings.Contains(out, ".debug-band-outline") {
+		t.Error("CSS should contain .debug-band-outline style")
+	}
+	if !strings.Contains(out, ".debug-horizontal-cut") {
+		t.Error("CSS should contain .debug-horizontal-cut style")
+	}
+	if !strings.Contains(out, ".debug-vertical-cut") {
+		t.Error("CSS should contain .debug-vertical-cut style")
+	}
+}
