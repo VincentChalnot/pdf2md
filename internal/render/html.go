@@ -32,6 +32,7 @@ func HTML(w io.Writer, doc *model.Document) error {
   .unknown { fill: #95a5a6; }
   .debug-flow { stroke-dasharray: 4 3; stroke-width: 1; }
   .debug-block { stroke: #e05c00; stroke-width: 1; fill: rgba(224, 92, 0, 0.04); }
+  .debug-heading { stroke: rgba(180, 120, 0, 0.35); stroke-width: 0.5; stroke-dasharray: 3 3; fill: none; }
   .debug-line { stroke: rgba(0, 80, 200, 0.35); stroke-width: 0.5; fill: none; }
   .debug-label { font-size: 9px; fill: #333; font-family: monospace; }
   .debug-layout-zone { stroke-dasharray: 6 3; stroke-width: 1.5; }
@@ -186,15 +187,22 @@ func HTML(w io.Writer, doc *model.Document) error {
 		blockIdx := 0
 		for _, flow := range page.Flows {
 			for _, block := range flow.Blocks {
-				if _, err := fmt.Fprintf(w, "<rect x=\"%g\" y=\"%g\" width=\"%g\" height=\"%g\" class=\"debug-block\"/>\n",
-					block.XMin, block.YMin, block.XMax-block.XMin, block.YMax-block.YMin); err != nil {
+				// Use different style for heading blocks
+				blockClass := "debug-block"
+				labelPrefix := "B"
+				if block.IsHeading {
+					blockClass = "debug-heading"
+					labelPrefix = "H"
+				}
+				if _, err := fmt.Fprintf(w, "<rect x=\"%g\" y=\"%g\" width=\"%g\" height=\"%g\" class=\"%s\"/>\n",
+					block.XMin, block.YMin, block.XMax-block.XMin, block.YMax-block.YMin, blockClass); err != nil {
 					return err
 				}
 				// Block label
 				labelX := block.XMin + 2
 				labelY := block.YMin + 9
-				if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" class=\"debug-label\">B%d</text>\n",
-					labelX, labelY, blockIdx); err != nil {
+				if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" class=\"debug-label\">%s%d</text>\n",
+					labelX, labelY, labelPrefix, blockIdx); err != nil {
 					return err
 				}
 				blockIdx++
