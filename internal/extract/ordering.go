@@ -28,7 +28,10 @@ func EstablishReadingOrder(doc *model.Document) {
 		// Step 2: Drop cap detection and merging.
 		page.Flows = mergeDropCaps(page.Flows, columnGroups, bodySize)
 
-		// Step 3: Final ordering.
+		// Step 3: Re-identify parallel column groups since indices may have changed.
+		columnGroups = identifyColumnGroups(page.Flows)
+
+		// Step 4: Final ordering.
 		page.Flows = orderFlows(page.Flows, columnGroups)
 	}
 }

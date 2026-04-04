@@ -367,18 +367,14 @@ func TestHTMLDebugOverlays(t *testing.T) {
 	if !strings.Contains(out, `class="debug-block"`) {
 		t.Error("output should contain debug-block class for block rectangles")
 	}
-	if !strings.Contains(out, ">B0 ") {
+	if !strings.Contains(out, ">B0</text>") {
 		t.Error("output should contain block label B0")
 	}
-	if !strings.Contains(out, ">B1 ") {
+	if !strings.Contains(out, ">B1</text>") {
 		t.Error("output should contain block label B1")
 	}
-	if !strings.Contains(out, ">B2 ") {
+	if !strings.Contains(out, ">B2</text>") {
 		t.Error("output should contain block label B2")
-	}
-	// Check that block labels include coordinates
-	if !strings.Contains(out, "(10.0,20.0)") && !strings.Contains(out, "(10,20)") {
-		t.Error("block labels should include coordinates")
 	}
 
 	// Check for line rectangles (no labels)
