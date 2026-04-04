@@ -16,23 +16,49 @@ func makeDoc(source string, pages []model.Page) *model.Document {
 	}
 }
 
+// makeBlock is a helper to create a Block with lines.
+func makeBlock(xMin, yMin, xMax, yMax float64, lines []model.Line) model.Block {
+	return model.Block{
+		XMin:  xMin,
+		YMin:  yMin,
+		XMax:  xMax,
+		YMax:  yMax,
+		Lines: lines,
+	}
+}
+
+// makeFlow is a helper to create a Flow with blocks.
+func makeFlow(xMin, yMin, xMax, yMax float64, blocks []model.Block) model.Flow {
+	// Also populate Lines for backward compatibility
+	var allLines []model.Line
+	for _, block := range blocks {
+		allLines = append(allLines, block.Lines...)
+	}
+	return model.Flow{
+		XMin:   xMin,
+		YMin:   yMin,
+		XMax:   xMax,
+		YMax:   yMax,
+		Blocks: blocks,
+		Lines:  allLines,
+	}
+}
+
 func TestHTMLBasicOutput(t *testing.T) {
 	doc := makeDoc("test.pdf", []model.Page{
 		{
 			Number: 1, Width: 800, Height: 600,
 			Flows: []model.Flow{
-				{
-					XMin: 20, YMin: 10, XMax: 220, YMax: 40,
-					Lines: []model.Line{
+				makeFlow(20, 10, 220, 40, []model.Block{
+					makeBlock(20, 10, 220, 40, []model.Line{
 						{XMin: 20, YMin: 10, XMax: 220, YMax: 40, FontSize: 24, Role: model.RoleH1, Text: "Title"},
-					},
-				},
-				{
-					XMin: 20, YMin: 50, XMax: 420, YMax: 70,
-					Lines: []model.Line{
+					}),
+				}),
+				makeFlow(20, 50, 420, 70, []model.Block{
+					makeBlock(20, 50, 420, 70, []model.Line{
 						{XMin: 20, YMin: 50, XMax: 420, YMax: 70, FontSize: 12, Role: model.RoleBody, Text: "Body text"},
-					},
-				},
+					}),
+				}),
 			},
 		},
 	})
@@ -111,12 +137,11 @@ func TestHTMLTextPositioning(t *testing.T) {
 		{
 			Number: 1, Width: 100, Height: 200,
 			Flows: []model.Flow{
-				{
-					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
-					Lines: []model.Line{
+				makeFlow(5, 10, 85, 25, []model.Block{
+					makeBlock(5, 10, 85, 25, []model.Line{
 						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "Hello"},
-					},
-				},
+					}),
+				}),
 			},
 		},
 	})
@@ -144,23 +169,21 @@ func TestHTMLMultiplePages(t *testing.T) {
 		{
 			Number: 1, Width: 100, Height: 200,
 			Flows: []model.Flow{
-				{
-					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
-					Lines: []model.Line{
+				makeFlow(5, 10, 85, 25, []model.Block{
+					makeBlock(5, 10, 85, 25, []model.Line{
 						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "Page 1"},
-					},
-				},
+					}),
+				}),
 			},
 		},
 		{
 			Number: 2, Width: 100, Height: 200,
 			Flows: []model.Flow{
-				{
-					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
-					Lines: []model.Line{
+				makeFlow(5, 10, 85, 25, []model.Block{
+					makeBlock(5, 10, 85, 25, []model.Line{
 						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "Page 2"},
-					},
-				},
+					}),
+				}),
 			},
 		},
 	})
@@ -184,12 +207,11 @@ func TestHTMLEscaping(t *testing.T) {
 		{
 			Number: 1, Width: 100, Height: 100,
 			Flows: []model.Flow{
-				{
-					XMin: 5, YMin: 10, XMax: 85, YMax: 25,
-					Lines: []model.Line{
+				makeFlow(5, 10, 85, 25, []model.Block{
+					makeBlock(5, 10, 85, 25, []model.Line{
 						{XMin: 5, YMin: 10, XMax: 85, YMax: 25, FontSize: 12, Role: model.RoleBody, Text: "a < b & c > d"},
-					},
-				},
+					}),
+				}),
 			},
 		},
 	})
@@ -230,18 +252,16 @@ func TestHTMLFontSizes(t *testing.T) {
 		{
 			Number: 1, Width: 100, Height: 200,
 			Flows: []model.Flow{
-				{
-					XMin: 5, YMin: 10, XMax: 85, YMax: 50,
-					Lines: []model.Line{
+				makeFlow(5, 10, 85, 50, []model.Block{
+					makeBlock(5, 10, 85, 50, []model.Line{
 						{XMin: 5, YMin: 10, XMax: 85, YMax: 50, FontSize: 24, Role: model.RoleH1, Text: "Big"},
-					},
-				},
-				{
-					XMin: 5, YMin: 60, XMax: 85, YMax: 70,
-					Lines: []model.Line{
+					}),
+				}),
+				makeFlow(5, 60, 85, 70, []model.Block{
+					makeBlock(5, 60, 85, 70, []model.Line{
 						{XMin: 5, YMin: 60, XMax: 85, YMax: 70, FontSize: 8, Role: model.RoleSmall, Text: "Small"},
-					},
-				},
+					}),
+				}),
 			},
 		},
 	})
@@ -285,5 +305,104 @@ func TestHTMLViewPortSVG(t *testing.T) {
 	}
 	if !strings.Contains(out, "height: auto") {
 		t.Error("SVG CSS should have height: auto")
+	}
+}
+
+func TestHTMLDebugOverlays(t *testing.T) {
+	doc := makeDoc("debug.pdf", []model.Page{
+		{
+			Number: 1, Width: 200, Height: 300,
+			Flows: []model.Flow{
+				makeFlow(10, 20, 190, 100, []model.Block{
+					makeBlock(10, 20, 90, 50, []model.Line{
+						{XMin: 10, YMin: 20, XMax: 90, YMax: 50, FontSize: 24, Role: model.RoleH1, Text: "Header"},
+					}),
+					makeBlock(10, 60, 90, 100, []model.Line{
+						{XMin: 10, YMin: 60, XMax: 90, YMax: 80, FontSize: 12, Role: model.RoleBody, Text: "Line 1"},
+						{XMin: 10, YMin: 80, XMax: 90, YMax: 100, FontSize: 12, Role: model.RoleBody, Text: "Line 2"},
+					}),
+				}),
+				makeFlow(100, 20, 190, 50, []model.Block{
+					makeBlock(100, 20, 190, 50, []model.Line{
+						{XMin: 100, YMin: 20, XMax: 190, YMax: 50, FontSize: 12, Role: model.RoleBody, Text: "Sidebar"},
+					}),
+				}),
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := HTML(&buf, doc); err != nil {
+		t.Fatalf("HTML() error: %v", err)
+	}
+
+	out := buf.String()
+
+	// Check for debug overlay layers
+	if !strings.Contains(out, `<g class="debug-flow-layer">`) {
+		t.Error("output should contain debug-flow-layer")
+	}
+	if !strings.Contains(out, `<g class="debug-block-layer">`) {
+		t.Error("output should contain debug-block-layer")
+	}
+	if !strings.Contains(out, `<g class="debug-line-layer">`) {
+		t.Error("output should contain debug-line-layer")
+	}
+	if !strings.Contains(out, `<g class="text-layer">`) {
+		t.Error("output should contain text-layer")
+	}
+
+	// Check for flow rectangles with labels
+	if !strings.Contains(out, `class="debug-flow"`) {
+		t.Error("output should contain debug-flow class for flow rectangles")
+	}
+	if !strings.Contains(out, ">F0</text>") {
+		t.Error("output should contain flow label F0")
+	}
+	if !strings.Contains(out, ">F1</text>") {
+		t.Error("output should contain flow label F1")
+	}
+
+	// Check for block rectangles with labels
+	if !strings.Contains(out, `class="debug-block"`) {
+		t.Error("output should contain debug-block class for block rectangles")
+	}
+	if !strings.Contains(out, ">B0 ") {
+		t.Error("output should contain block label B0")
+	}
+	if !strings.Contains(out, ">B1 ") {
+		t.Error("output should contain block label B1")
+	}
+	if !strings.Contains(out, ">B2 ") {
+		t.Error("output should contain block label B2")
+	}
+	// Check that block labels include coordinates
+	if !strings.Contains(out, "(10.0,20.0)") && !strings.Contains(out, "(10,20)") {
+		t.Error("block labels should include coordinates")
+	}
+
+	// Check for line rectangles (no labels)
+	if !strings.Contains(out, `class="debug-line"`) {
+		t.Error("output should contain debug-line class for line rectangles")
+	}
+
+	// Verify there are 4 line rectangles (1 + 2 + 1)
+	lineCount := strings.Count(out, `class="debug-line"`)
+	if lineCount != 4 {
+		t.Errorf("expected 4 line rectangles, got %d", lineCount)
+	}
+
+	// Check CSS styles for debug overlays
+	if !strings.Contains(out, ".debug-flow") {
+		t.Error("CSS should contain .debug-flow style")
+	}
+	if !strings.Contains(out, ".debug-block") {
+		t.Error("CSS should contain .debug-block style")
+	}
+	if !strings.Contains(out, ".debug-line") {
+		t.Error("CSS should contain .debug-line style")
+	}
+	if !strings.Contains(out, ".debug-label") {
+		t.Error("CSS should contain .debug-label style")
 	}
 }
