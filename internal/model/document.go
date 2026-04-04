@@ -39,6 +39,16 @@ type Page struct {
 
 // Flow represents a grouped collection of text blocks.
 type Flow struct {
+	XMin   float64 `json:"xMin"`
+	YMin   float64 `json:"yMin"`
+	XMax   float64 `json:"xMax"`
+	YMax   float64 `json:"yMax"`
+	Blocks []Block `json:"blocks"`
+	Lines  []Line  `json:"lines"` // Deprecated: kept for backward compatibility, use Blocks instead
+}
+
+// Block represents a text block from the bbox layout.
+type Block struct {
 	XMin  float64 `json:"xMin"`
 	YMin  float64 `json:"yMin"`
 	XMax  float64 `json:"xMax"`

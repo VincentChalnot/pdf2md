@@ -132,7 +132,8 @@ func parseBBoxReader(r io.Reader) (*model.Document, error) {
 
 		var flows []model.Flow
 		for _, xf := range xp.Flows {
-			var lines []model.Line
+			var blocks []model.Block
+			var allLines []model.Line // For backward compatibility
 			var flowXMin, flowYMin, flowXMax, flowYMax float64
 			firstBlock := true
 
@@ -164,6 +165,7 @@ func parseBBoxReader(r io.Reader) (*model.Document, error) {
 					}
 				}
 
+				var blockLines []model.Line
 				for _, xl := range xb.Lines {
 					lineXMin, _ := strconv.ParseFloat(xl.XMin, 64)
 					lineYMin, _ := strconv.ParseFloat(xl.YMin, 64)
@@ -198,25 +200,39 @@ func parseBBoxReader(r io.Reader) (*model.Document, error) {
 					}
 					text := strings.Join(textParts, " ")
 
-					lines = append(lines, model.Line{
+					line := model.Line{
 						XMin:     lineXMin,
 						YMin:     lineYMin,
 						XMax:     lineXMax,
 						YMax:     lineYMax,
 						FontSize: fontSize,
 						Text:     text,
+					}
+					blockLines = append(blockLines, line)
+					allLines = append(allLines, line) // For backward compatibility
+				}
+
+				// Add block if it has lines.
+				if len(blockLines) > 0 {
+					blocks = append(blocks, model.Block{
+						XMin:  blockXMin,
+						YMin:  blockYMin,
+						XMax:  blockXMax,
+						YMax:  blockYMax,
+						Lines: blockLines,
 					})
 				}
 			}
 
-			// Only add flow if it has lines.
-			if len(lines) > 0 {
+			// Only add flow if it has blocks/lines.
+			if len(blocks) > 0 {
 				flows = append(flows, model.Flow{
-					XMin:  flowXMin,
-					YMin:  flowYMin,
-					XMax:  flowXMax,
-					YMax:  flowYMax,
-					Lines: lines,
+					XMin:   flowXMin,
+					YMin:   flowYMin,
+					XMax:   flowXMax,
+					YMax:   flowYMax,
+					Blocks: blocks,
+					Lines:  allLines, // For backward compatibility
 				})
 			}
 		}
