@@ -285,5 +285,5 @@ func getBodyLineHeight(doc *model.Document) float64 {
 			return fs.Size
 		}
 	}
-	return 10.0 // default fallback
+	return 10.0 // typical body text size in PDF points
 }
