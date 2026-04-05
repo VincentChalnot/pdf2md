@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"strings"
 
 	"github.com/user/pdf2md/internal/layout"
 	"github.com/user/pdf2md/internal/model"
@@ -22,7 +23,8 @@ func HTML(w io.Writer, doc *model.Document) error {
 <style>
   body { margin: 20px; font-family: 'Consolas', 'Monaco', 'Menlo', monospace; }
   .page { margin-bottom: 40px; }
-  svg { border: 1px solid #ccc; display: block; width: 100%%; height: auto; }
+  .page-info { font-size: 14px; color: #333; margin: 0 0 8px 0; }
+  svg { border: 1px solid #666; display: block; width: 100%%; height: auto; }
   .h1 { fill: #e74c3c; font-weight: bold; }
   .h2 { fill: #e67e22; font-weight: bold; }
   .h3 { fill: #f1c40f; }
@@ -78,13 +80,36 @@ func HTML(w io.Writer, doc *model.Document) error {
 	}
 
 	for _, page := range doc.Pages {
-		if _, err := fmt.Fprintf(w, "<div class=\"page\">\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%g\" height=\"%g\" viewBox=\"0 0 %g %g\">\n",
+		// Detect layout zones for this page
+		pageLayout := layout.DetectLayout(&page, getBodyLineHeight(doc))
+
+		// Build page summary: collect per-band column counts
+		var bandColumns []string
+		for _, zone := range pageLayout.Zones {
+			for _, band := range zone.Bands {
+				cols := len(band.VerticalCuts) + 1
+				bandColumns = append(bandColumns, fmt.Sprintf("%d", cols))
+			}
+		}
+
+		// Page info in plain HTML above the SVG
+		totalBands := len(bandColumns)
+		if totalBands > 0 {
+			if _, err := fmt.Fprintf(w, "<div class=\"page\">\n<p class=\"page-info\">Page: %d - Bands: %d - Columns: %s</p>\n",
+				page.Number, totalBands, strings.Join(bandColumns, ", ")); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintf(w, "<div class=\"page\">\n<p class=\"page-info\">Page: %d - Bands: 0</p>\n",
+				page.Number); err != nil {
+				return err
+			}
+		}
+
+		if _, err := fmt.Fprintf(w, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%g\" height=\"%g\" viewBox=\"0 0 %g %g\">\n",
 			page.Width, page.Height, page.Width, page.Height); err != nil {
 			return err
 		}
-
-		// Detect layout zones for this page
-		pageLayout := layout.DetectLayout(&page)
 
 		// Layer 0a: Layout zone rectangles (bottom layer)
 		if _, err := fmt.Fprint(w, "<g class=\"debug-layout\">\n"); err != nil {
@@ -95,13 +120,6 @@ func HTML(w io.Writer, doc *model.Document) error {
 			if _, err := fmt.Fprintf(w, "<rect x=\"%g\" y=\"%g\" width=\"%g\" height=\"%g\" fill=\"%s\" stroke=\"%s\" class=\"debug-layout-zone\"/>\n",
 				zone.XMin, zone.YMin, zone.XMax-zone.XMin, zone.YMax-zone.YMin,
 				zoneColors[colorIdx], zoneStrokeColors[colorIdx]); err != nil {
-				return err
-			}
-			// Zone label with metrics
-			labelX := zone.XMin + 3
-			labelY := zone.YMin + 11
-			if _, err := fmt.Fprintf(w, "<text x=\"%g\" y=\"%g\" class=\"debug-layout-label\">Z%d | bands:%d col:%d bhVar:%.1f cwVar:%.1f</text>\n",
-				labelX, labelY, zone.Index, zone.BandCount, zone.ColumnCount, zone.BandHeightVariance, zone.ColumnWidthVariance); err != nil {
 				return err
 			}
 		}
@@ -258,4 +276,14 @@ func HTML(w io.Writer, doc *model.Document) error {
 
 	_, err := fmt.Fprint(w, "</body>\n</html>\n")
 	return err
+}
+
+// getBodyLineHeight returns the body font size from the document's FontMap.
+func getBodyLineHeight(doc *model.Document) float64 {
+	for _, fs := range doc.FontMap {
+		if fs.Role == model.RoleBody {
+			return fs.Size
+		}
+	}
+	return 10.0 // default fallback
 }
