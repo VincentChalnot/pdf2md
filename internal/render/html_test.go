@@ -465,33 +465,23 @@ func TestHTMLLayoutDetectionOverlays(t *testing.T) {
 		t.Error("output should contain debug-vertical-cuts layer")
 	}
 
-	// Check for zone labels with metrics
-	// Note: With heading exclusion, we now have:
+	// Check for page info in plain HTML (above SVG)
+	// With heading exclusion, we have:
 	// - Heading block excluded (H1 with 20pt line height)
 	// - Multi-column zone with 2 bands (body rows 1 and 2)
 	// - Footer is single-column mono band
-	// According to new grouping logic:
-	//   - Header is excluded (heading)
-	//   - Two body rows group together (share vertical cut at ~250)
-	//   - Footer is separate zone (mono-column)
-	// So we should have 2 zones (Z0 and Z1), not 3
-	if !strings.Contains(out, "Z0") {
-		t.Error("output should contain zone label Z0")
+	// So: 3 bands total
+	if !strings.Contains(out, "Page: 1") {
+		t.Error("output should contain page number in page-info")
 	}
-	if !strings.Contains(out, "Z1") {
-		t.Error("output should contain zone label Z1")
+	if !strings.Contains(out, "Bands:") {
+		t.Error("output should contain 'Bands:' in page-info")
 	}
-	if !strings.Contains(out, "bands:") {
-		t.Error("zone labels should contain 'bands:' metric")
+	if !strings.Contains(out, "Columns:") {
+		t.Error("output should contain 'Columns:' in page-info")
 	}
-	if !strings.Contains(out, "col:") {
-		t.Error("zone labels should contain 'col:' metric")
-	}
-	if !strings.Contains(out, "bhVar:") {
-		t.Error("zone labels should contain 'bhVar:' metric")
-	}
-	if !strings.Contains(out, "cwVar:") {
-		t.Error("zone labels should contain 'cwVar:' metric")
+	if !strings.Contains(out, `class="page-info"`) {
+		t.Error("output should contain page-info class")
 	}
 
 	// Check for zone rectangles with the layout zone class
@@ -529,5 +519,67 @@ func TestHTMLLayoutDetectionOverlays(t *testing.T) {
 	}
 	if !strings.Contains(out, ".debug-vertical-cut") {
 		t.Error("CSS should contain .debug-vertical-cut style")
+	}
+}
+
+func TestHTMLPageInfoDisplay(t *testing.T) {
+	doc := makeDoc("pageinfo.pdf", []model.Page{
+		{
+			Number: 3, Width: 500, Height: 700,
+			Flows: []model.Flow{
+				makeFlow(50, 50, 450, 400, []model.Block{
+					// Two-column band
+					makeBlock(50, 50, 230, 100, []model.Line{
+						{XMin: 50, YMin: 58, XMax: 230, YMax: 70, FontSize: 12, Role: model.RoleBody, Text: "Left col"},
+						{XMin: 50, YMin: 78, XMax: 230, YMax: 90, FontSize: 12, Role: model.RoleBody, Text: "Left col 2"},
+					}),
+					makeBlock(270, 50, 450, 100, []model.Line{
+						{XMin: 270, YMin: 58, XMax: 450, YMax: 70, FontSize: 12, Role: model.RoleBody, Text: "Right col"},
+						{XMin: 270, YMin: 78, XMax: 450, YMax: 90, FontSize: 12, Role: model.RoleBody, Text: "Right col 2"},
+					}),
+					// Single-column band
+					makeBlock(50, 150, 450, 200, []model.Line{
+						{XMin: 50, YMin: 158, XMax: 450, YMax: 170, FontSize: 12, Role: model.RoleBody, Text: "Full width 1"},
+						{XMin: 50, YMin: 178, XMax: 450, YMax: 190, FontSize: 12, Role: model.RoleBody, Text: "Full width 2"},
+					}),
+				}),
+			},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := HTML(&buf, doc); err != nil {
+		t.Fatalf("HTML() error: %v", err)
+	}
+
+	out := buf.String()
+
+	// Should have page info in plain HTML
+	if !strings.Contains(out, `class="page-info"`) {
+		t.Error("output should contain page-info element")
+	}
+	if !strings.Contains(out, "Page: 3") {
+		t.Error("page-info should contain page number")
+	}
+	if !strings.Contains(out, "Bands:") {
+		t.Error("page-info should contain band count")
+	}
+	if !strings.Contains(out, "Columns:") {
+		t.Error("page-info should contain column info")
+	}
+
+	// Page info should be outside and before the SVG
+	pageInfoIdx := strings.Index(out, `class="page-info"`)
+	svgIdx := strings.Index(out, "<svg")
+	if pageInfoIdx > svgIdx {
+		t.Error("page-info should appear before SVG element")
+	}
+
+	// Border should be darker grey
+	if !strings.Contains(out, "#666") {
+		t.Error("SVG border should use darker grey (#666)")
+	}
+	if strings.Contains(out, "#ccc") {
+		t.Error("SVG border should NOT use light grey (#ccc)")
 	}
 }

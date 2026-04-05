@@ -66,8 +66,9 @@ type PageLayout struct {
 	HorizontalCuts []HorizontalCut
 }
 
-// DetectLayout performs X-Y cut analysis on a page and returns layout zones
-func DetectLayout(page *model.Page) *PageLayout {
+// DetectLayout performs X-Y cut analysis on a page and returns layout zones.
+// bodyLineHeight is the standard body text line height used for band merging thresholds.
+func DetectLayout(page *model.Page, bodyLineHeight float64) *PageLayout {
 	if page == nil {
 		return &PageLayout{}
 	}
@@ -79,7 +80,7 @@ func DetectLayout(page *model.Page) *PageLayout {
 			// Mark heading blocks in the original flow data
 			if isHeadingBlock(&block) {
 				page.Flows[flowIdx].Blocks[blockIdx].IsHeading = true
-				block.IsHeading = true  // Also mark in the copy
+				block.IsHeading = true // Also mark in the copy
 			}
 			allBlocks = append(allBlocks, block)
 		}
@@ -102,22 +103,34 @@ func DetectLayout(page *model.Page) *PageLayout {
 		return &PageLayout{}
 	}
 
-	// Step 1: Find horizontal cuts (page-level Y-axis projection)
-	bands, hCuts := findHorizontalBands(layoutBlocks, page.Width)
+	// Step 1: Find horizontal bands with gap threshold based on body line height
+	bandGapThreshold := math.Max(MinGapThreshold, bodyLineHeight*1.2)
+	bands, _ := findHorizontalBands(layoutBlocks, page.Width, bandGapThreshold)
 
 	// Step 2: Find vertical cuts for each band (X-axis projection)
 	for _, band := range bands {
 		band.VerticalCuts = findVerticalCuts(band.Blocks)
 	}
 
-	// Step 3: Group bands by column structure into layout zones
+	// Step 3: Merge single-line bands (down, or up if at bottom of page)
+	bands = mergeSingleLineBands(bands)
+
+	// Step 4: Merge consecutive single-column bands
+	bands = mergeSingleColumnBands(bands)
+
+	// Step 5: Recalculate vertical cuts for merged bands
+	for _, band := range bands {
+		band.VerticalCuts = findVerticalCuts(band.Blocks)
+	}
+
+	// Step 6: Group bands by column structure into layout zones
 	zones := groupBandsIntoZones(bands)
 
-	// Step 4: Filter horizontal cuts - only keep cuts between zones where
-	// at least one of the adjacent bands is multi-column
+	// Step 7: Recalculate horizontal cuts from final bands and filter
+	hCuts := recalculateHorizontalCuts(bands, page.Width)
 	filteredCuts := filterHorizontalCuts(bands, hCuts)
 
-	// Step 5: Characterize each zone (compute metrics)
+	// Step 8: Characterize each zone (compute metrics)
 	for i, zone := range zones {
 		zone.Index = i
 		characterizeZone(zone)
@@ -187,7 +200,7 @@ func filterHorizontalCuts(bands []*HorizontalBand, cuts []HorizontalCut) []Horiz
 }
 
 // findHorizontalBands performs Y-axis projection and identifies horizontal bands
-func findHorizontalBands(blocks []model.Block, pageWidth float64) ([]*HorizontalBand, []HorizontalCut) {
+func findHorizontalBands(blocks []model.Block, pageWidth, gapThreshold float64) ([]*HorizontalBand, []HorizontalCut) {
 	if len(blocks) == 0 {
 		return nil, nil
 	}
@@ -204,7 +217,7 @@ func findHorizontalBands(blocks []model.Block, pageWidth float64) ([]*Horizontal
 	})
 
 	// Merge overlapping intervals to find occupied regions
-	occupied := mergeIntervals(intervals)
+	occupied := mergeIntervals(intervals, gapThreshold)
 
 	// Find gaps between occupied regions
 	var cuts []HorizontalCut
@@ -213,7 +226,7 @@ func findHorizontalBands(blocks []model.Block, pageWidth float64) ([]*Horizontal
 		gapEnd := occupied[i+1].min
 		gapSize := gapEnd - gapStart
 
-		if gapSize >= MinGapThreshold {
+		if gapSize >= gapThreshold {
 			cuts = append(cuts, HorizontalCut{
 				Y:    (gapStart + gapEnd) / 2,
 				XMin: 0,
@@ -272,7 +285,7 @@ func findVerticalCuts(blocks []model.Block) []float64 {
 	})
 
 	// Merge overlapping intervals
-	occupied := mergeIntervals(intervals)
+	occupied := mergeIntervals(intervals, MinGapThreshold)
 
 	// Find gaps between occupied regions
 	var cuts []float64
@@ -290,8 +303,8 @@ func findVerticalCuts(blocks []model.Block) []float64 {
 }
 
 // mergeIntervals merges overlapping intervals (assumes sorted by min)
-// Only merges if they truly overlap or are within MinGapThreshold
-func mergeIntervals(intervals []interval) []interval {
+// Only merges if they truly overlap or are within gapThreshold
+func mergeIntervals(intervals []interval, gapThreshold float64) []interval {
 	if len(intervals) == 0 {
 		return nil
 	}
@@ -304,7 +317,7 @@ func mergeIntervals(intervals []interval) []interval {
 		// Calculate gap between last and current
 		gap := current.min - last.max
 
-		if gap < MinGapThreshold {
+		if gap < gapThreshold {
 			// Overlapping or gap is too small - merge
 			last.max = math.Max(last.max, current.max)
 		} else {
@@ -507,4 +520,99 @@ func characterizeZone(zone *LayoutZone) {
 		}
 		zone.ColumnWidthVariance = variance / float64(len(widths))
 	}
+}
+
+// bandLineCount returns the total number of lines across all blocks in a band.
+func bandLineCount(band *HorizontalBand) int {
+	count := 0
+	for _, block := range band.Blocks {
+		count += len(block.Lines)
+	}
+	return count
+}
+
+// mergeBandInto merges the source band into the target band.
+func mergeBandInto(target, source *HorizontalBand) {
+	target.Blocks = append(target.Blocks, source.Blocks...)
+	target.XMin = math.Min(target.XMin, source.XMin)
+	target.XMax = math.Max(target.XMax, source.XMax)
+	target.YMin = math.Min(target.YMin, source.YMin)
+	target.YMax = math.Max(target.YMax, source.YMax)
+}
+
+// mergeSingleLineBands merges bands with a single line into adjacent bands.
+// Single-line bands merge down (into the next band). If the last band has
+// a single line, it merges up (into the previous band).
+func mergeSingleLineBands(bands []*HorizontalBand) []*HorizontalBand {
+	if len(bands) <= 1 {
+		return bands
+	}
+
+	result := make([]*HorizontalBand, 0, len(bands))
+
+	for i := 0; i < len(bands); i++ {
+		band := bands[i]
+		lineCount := bandLineCount(band)
+
+		if lineCount == 1 {
+			if i < len(bands)-1 {
+				// Merge down: add blocks to next band
+				mergeBandInto(bands[i+1], band)
+				continue
+			} else if len(result) > 0 {
+				// Last band with single line: merge up into previous result band
+				mergeBandInto(result[len(result)-1], band)
+				continue
+			}
+		}
+
+		result = append(result, band)
+	}
+
+	return result
+}
+
+// mergeSingleColumnBands merges consecutive bands that both have a single column
+// (no vertical cuts), even if lines are not aligned.
+func mergeSingleColumnBands(bands []*HorizontalBand) []*HorizontalBand {
+	if len(bands) <= 1 {
+		return bands
+	}
+
+	result := []*HorizontalBand{bands[0]}
+
+	for i := 1; i < len(bands); i++ {
+		prev := result[len(result)-1]
+		curr := bands[i]
+
+		// Both are single-column (no vertical cuts)
+		if len(prev.VerticalCuts) == 0 && len(curr.VerticalCuts) == 0 {
+			mergeBandInto(prev, curr)
+		} else {
+			result = append(result, curr)
+		}
+	}
+
+	return result
+}
+
+// recalculateHorizontalCuts creates horizontal cuts between the final bands.
+func recalculateHorizontalCuts(bands []*HorizontalBand, pageWidth float64) []HorizontalCut {
+	if len(bands) < 2 {
+		return nil
+	}
+
+	var cuts []HorizontalCut
+	for i := 0; i < len(bands)-1; i++ {
+		gapStart := bands[i].YMax
+		gapEnd := bands[i+1].YMin
+		if gapEnd > gapStart {
+			cuts = append(cuts, HorizontalCut{
+				Y:    (gapStart + gapEnd) / 2,
+				XMin: 0,
+				XMax: pageWidth,
+			})
+		}
+	}
+	return cuts
 }
