@@ -15,7 +15,7 @@ func TestDetectLayoutEmpty(t *testing.T) {
 		Flows:  []model.Flow{},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	if len(layout.Zones) != 0 {
 		t.Errorf("Expected 0 zones for empty page, got %d", len(layout.Zones))
@@ -41,7 +41,7 @@ func TestDetectLayoutSingleBlock(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	if len(layout.Zones) != 1 {
 		t.Fatalf("Expected 1 zone, got %d", len(layout.Zones))
@@ -78,7 +78,7 @@ func TestDetectLayoutHorizontalCuts(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// Should NOT show horizontal cut between mono-column bands (Fix 1)
 	if len(layout.HorizontalCuts) != 0 {
@@ -109,7 +109,7 @@ func TestDetectLayoutVerticalCuts(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	if len(layout.Zones) != 1 {
 		t.Fatalf("Expected 1 zone, got %d", len(layout.Zones))
@@ -161,7 +161,7 @@ func TestDetectLayoutMultipleZones(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// Should have 3 zones: header, body (2 bands), footer
 	if len(layout.Zones) != 3 {
@@ -209,7 +209,7 @@ func TestDetectLayoutBandHeightVariance(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	if len(layout.Zones) != 1 {
 		t.Fatalf("Expected 1 zone, got %d", len(layout.Zones))
@@ -240,7 +240,7 @@ func TestDetectLayoutColumnWidthVariance(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	if len(layout.Zones) != 1 {
 		t.Fatalf("Expected 1 zone, got %d", len(layout.Zones))
@@ -276,7 +276,7 @@ func TestMinGapThreshold(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// Should NOT create a horizontal cut (gap too small)
 	if len(layout.HorizontalCuts) != 0 {
@@ -315,7 +315,7 @@ func TestColumnGroupingTolerance(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// Should group into single zone despite slight difference
 	if len(layout.Zones) != 1 {
@@ -346,7 +346,7 @@ func TestDetectLayoutZoneBoundingBox(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	if len(layout.Zones) != 1 {
 		t.Fatalf("Expected 1 zone, got %d", len(layout.Zones))
@@ -389,7 +389,7 @@ func TestFix1_SuppressHorizontalCutsBetweenMonoColumns(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// Should have 2 horizontal cuts:
 	// - One between mono-column and multi-column (at ~150)
@@ -424,7 +424,7 @@ func TestFix2_BandGroupingWithSharedCuts(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// These two bands should be grouped into one zone because they share
 	// the cut position at ~250 (within tolerance)
@@ -476,7 +476,7 @@ func TestFix3_HeadingBlockExclusion(t *testing.T) {
 		},
 	}
 
-	layout := DetectLayout(page)
+	layout := DetectLayout(page, 0.0)
 
 	// Check that the heading block was marked
 	if !page.Flows[0].Blocks[0].IsHeading {
@@ -508,6 +508,188 @@ func TestFix3_HeadingBlockExclusion(t *testing.T) {
 		if zone.ColumnCount != 2 {
 			t.Errorf("Expected 2 columns, got %d", zone.ColumnCount)
 		}
+	}
+}
+
+// TestMergeSingleLineBandsDown tests that single-line bands merge into the band below
+func TestMergeSingleLineBandsDown(t *testing.T) {
+	page := &model.Page{
+		Number: 1,
+		Width:  500,
+		Height: 700,
+		Flows: []model.Flow{
+			{
+				XMin: 50, YMin: 50, XMax: 450, YMax: 300,
+				Blocks: []model.Block{
+					// Band 1: single line (should merge down into band 2)
+					{
+						XMin: 50, YMin: 50, XMax: 450, YMax: 70,
+						Lines: []model.Line{
+							{XMin: 50, YMin: 58, XMax: 450, YMax: 70, Text: "Title line"},
+						},
+					},
+					// Band 2: multiple lines
+					{
+						XMin: 50, YMin: 100, XMax: 450, YMax: 160,
+						Lines: []model.Line{
+							{XMin: 50, YMin: 108, XMax: 450, YMax: 120, Text: "Body line 1"},
+							{XMin: 50, YMin: 128, XMax: 450, YMax: 140, Text: "Body line 2"},
+							{XMin: 50, YMin: 148, XMax: 450, YMax: 160, Text: "Body line 3"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	layout := DetectLayout(page, 0.0)
+
+	// Single-line band should merge down, resulting in 1 band
+	if len(layout.Zones) != 1 {
+		t.Fatalf("Expected 1 zone after single-line merge, got %d", len(layout.Zones))
+	}
+	if layout.Zones[0].BandCount != 1 {
+		t.Errorf("Expected 1 band after single-line merge down, got %d", layout.Zones[0].BandCount)
+	}
+}
+
+// TestMergeSingleLineBandsUp tests that single-line bands at page bottom merge up
+func TestMergeSingleLineBandsUp(t *testing.T) {
+	page := &model.Page{
+		Number: 1,
+		Width:  500,
+		Height: 700,
+		Flows: []model.Flow{
+			{
+				XMin: 50, YMin: 50, XMax: 450, YMax: 300,
+				Blocks: []model.Block{
+					// Band 1: multiple lines
+					{
+						XMin: 50, YMin: 50, XMax: 240, YMax: 120,
+						Lines: []model.Line{
+							{XMin: 50, YMin: 58, XMax: 240, YMax: 70, Text: "Left col 1"},
+							{XMin: 50, YMin: 78, XMax: 240, YMax: 90, Text: "Left col 2"},
+						},
+					},
+					{
+						XMin: 260, YMin: 50, XMax: 450, YMax: 120,
+						Lines: []model.Line{
+							{XMin: 260, YMin: 58, XMax: 450, YMax: 70, Text: "Right col 1"},
+							{XMin: 260, YMin: 78, XMax: 450, YMax: 90, Text: "Right col 2"},
+						},
+					},
+					// Band 2 (last): single line (should merge up into band 1)
+					{
+						XMin: 50, YMin: 200, XMax: 450, YMax: 220,
+						Lines: []model.Line{
+							{XMin: 50, YMin: 208, XMax: 450, YMax: 220, Text: "Footer"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	layout := DetectLayout(page, 0.0)
+
+	// Last single-line band should merge up, resulting in 1 band
+	if len(layout.Zones) != 1 {
+		t.Fatalf("Expected 1 zone after single-line merge up, got %d", len(layout.Zones))
+	}
+	if layout.Zones[0].BandCount != 1 {
+		t.Errorf("Expected 1 band after single-line merge up, got %d", layout.Zones[0].BandCount)
+	}
+}
+
+// TestMergeCloseBands tests that bands closer than 1.2x body line height merge
+func TestMergeCloseBands(t *testing.T) {
+	// Body line height = 12.0, threshold = 12.0 * 1.2 = 14.4
+	// Gap of 10pt between bands should cause them to merge
+	page := &model.Page{
+		Number: 1,
+		Width:  500,
+		Height: 700,
+		Flows: []model.Flow{
+			{
+				XMin: 50, YMin: 50, XMax: 450, YMax: 200,
+				Blocks: []model.Block{
+					{XMin: 50, YMin: 50, XMax: 450, YMax: 80},
+					{XMin: 50, YMin: 90, XMax: 450, YMax: 120}, // Gap: 10pt < 14.4
+				},
+			},
+		},
+	}
+
+	layout := DetectLayout(page, 12.0)
+
+	// Bands should merge because gap (10pt) < 1.2 * bodyLineHeight (14.4pt)
+	if len(layout.Zones) != 1 {
+		t.Fatalf("Expected 1 zone, got %d", len(layout.Zones))
+	}
+	if layout.Zones[0].BandCount != 1 {
+		t.Errorf("Expected 1 band after close merge, got %d", layout.Zones[0].BandCount)
+	}
+}
+
+// TestMergeConsecutiveSingleColumnBands tests merging of adjacent single-column bands
+func TestMergeConsecutiveSingleColumnBands(t *testing.T) {
+	page := &model.Page{
+		Number: 1,
+		Width:  500,
+		Height: 700,
+		Flows: []model.Flow{
+			{
+				XMin: 50, YMin: 50, XMax: 450, YMax: 400,
+				Blocks: []model.Block{
+					// Band 1: single column (full width)
+					{
+						XMin: 50, YMin: 50, XMax: 450, YMax: 100,
+						Lines: []model.Line{
+							{XMin: 50, YMin: 58, XMax: 450, YMax: 70, Text: "Line 1"},
+							{XMin: 50, YMin: 78, XMax: 450, YMax: 90, Text: "Line 2"},
+						},
+					},
+					// Band 2: single column (different line positions, but still single column)
+					{
+						XMin: 60, YMin: 150, XMax: 440, YMax: 200,
+						Lines: []model.Line{
+							{XMin: 60, YMin: 158, XMax: 440, YMax: 170, Text: "Line 3"},
+							{XMin: 60, YMin: 178, XMax: 440, YMax: 190, Text: "Line 4"},
+						},
+					},
+					// Band 3: two columns (should NOT merge with above)
+					{
+						XMin: 50, YMin: 250, XMax: 230, YMax: 300,
+						Lines: []model.Line{
+							{XMin: 50, YMin: 258, XMax: 230, YMax: 270, Text: "Left"},
+							{XMin: 50, YMin: 278, XMax: 230, YMax: 290, Text: "Left 2"},
+						},
+					},
+					{
+						XMin: 270, YMin: 250, XMax: 450, YMax: 300,
+						Lines: []model.Line{
+							{XMin: 270, YMin: 258, XMax: 450, YMax: 270, Text: "Right"},
+							{XMin: 270, YMin: 278, XMax: 450, YMax: 290, Text: "Right 2"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	layout := DetectLayout(page, 0.0)
+
+	// Bands 1 and 2 should merge (both single-column), band 3 stays separate
+	if len(layout.Zones) != 2 {
+		t.Fatalf("Expected 2 zones (merged single-col + multi-col), got %d", len(layout.Zones))
+	}
+
+	// First zone should have 1 band (merged single-column bands)
+	if layout.Zones[0].BandCount != 1 {
+		t.Errorf("Expected merged single-column zone to have 1 band, got %d", layout.Zones[0].BandCount)
+	}
+	if layout.Zones[0].ColumnCount != 1 {
+		t.Errorf("Expected merged zone to have 1 column, got %d", layout.Zones[0].ColumnCount)
 	}
 }
 
