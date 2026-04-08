@@ -112,9 +112,6 @@ func DetectLayout(page *model.Page, bodyLineHeight float64) *PageLayout {
 		band.VerticalCuts = findVerticalCuts(band.Blocks)
 	}
 
-	// Step 3: Merge single-line bands (down, or up if at bottom of page)
-	bands = mergeSingleLineBands(bands)
-
 	// Step 4: Merge consecutive single-column bands
 	bands = mergeSingleColumnBands(bands)
 
@@ -295,7 +292,7 @@ func findVerticalCuts(blocks []model.Block) []float64 {
 		gapSize := gapEnd - gapStart
 
 		if gapSize >= MinGapThreshold {
-			cuts = append(cuts, (gapStart + gapEnd) / 2)
+			cuts = append(cuts, (gapStart+gapEnd)/2)
 		}
 	}
 
@@ -341,6 +338,8 @@ func groupBandsIntoZones(bands []*HorizontalBand) []*LayoutZone {
 	for _, band := range bands {
 		hasCuts := len(band.VerticalCuts) > 0
 
+		isSingleLine := BandLineCount(band) == 1
+
 		if currentZone == nil {
 			// Start first zone
 			currentZone = &LayoutZone{
@@ -352,11 +351,26 @@ func groupBandsIntoZones(bands []*HorizontalBand) []*LayoutZone {
 
 		// Check if this band is compatible with the current zone
 		// New rule: bands are compatible if they share at least one vertical cut position
-		if cutsSharePosition(currentZone.VerticalCuts, band.VerticalCuts) {
+		// Single-line bands don't interfere with layout detection, so they are always compatible
+
+		// Check if the current zone ONLY contains single-line bands
+		onlySingleLine := true
+		for _, b := range currentZone.Bands {
+			if BandLineCount(b) != 1 {
+				onlySingleLine = false
+				break
+			}
+		}
+
+		// If the current zone only has single-line bands (so no vertical cuts established yet),
+		// the next band dictates the zone's vertical cuts.
+		adoptCuts := onlySingleLine && hasCuts
+
+		if isSingleLine || adoptCuts || cutsSharePosition(currentZone.VerticalCuts, band.VerticalCuts) {
 			// Add band to current zone
 			currentZone.Bands = append(currentZone.Bands, band)
 			// Keep track of all unique vertical cuts in the zone
-			if hasCuts {
+			if hasCuts && !isSingleLine {
 				currentZone.VerticalCuts = mergeVerticalCuts(currentZone.VerticalCuts, band.VerticalCuts)
 			}
 		} else {
@@ -473,8 +487,17 @@ func characterizeZone(zone *LayoutZone) {
 		zone.YMax = math.Max(zone.YMax, band.YMax)
 	}
 
-	// Band count
-	zone.BandCount = len(zone.Bands)
+	// Band count (excluding single-line bands as they don't count towards the layout detection maximums)
+	zone.BandCount = 0
+	for _, band := range zone.Bands {
+		if BandLineCount(band) != 1 {
+			zone.BandCount++
+		}
+	}
+	// Fallback if all bands were single-line
+	if zone.BandCount == 0 && len(zone.Bands) > 0 {
+		zone.BandCount = 1
+	}
 
 	// Column count (vertical cuts + 1)
 	zone.ColumnCount = len(zone.VerticalCuts) + 1
@@ -522,8 +545,8 @@ func characterizeZone(zone *LayoutZone) {
 	}
 }
 
-// bandLineCount returns the total number of lines across all blocks in a band.
-func bandLineCount(band *HorizontalBand) int {
+// BandLineCount returns the total number of lines across all blocks in a band.
+func BandLineCount(band *HorizontalBand) int {
 	count := 0
 	for _, block := range band.Blocks {
 		count += len(block.Lines)
@@ -538,38 +561,6 @@ func mergeBandInto(target, source *HorizontalBand) {
 	target.XMax = math.Max(target.XMax, source.XMax)
 	target.YMin = math.Min(target.YMin, source.YMin)
 	target.YMax = math.Max(target.YMax, source.YMax)
-}
-
-// mergeSingleLineBands merges bands with a single line into adjacent bands.
-// Single-line bands merge down (into the next band). If the last band has
-// a single line, it merges up (into the previous band).
-func mergeSingleLineBands(bands []*HorizontalBand) []*HorizontalBand {
-	if len(bands) <= 1 {
-		return bands
-	}
-
-	result := make([]*HorizontalBand, 0, len(bands))
-
-	for i := 0; i < len(bands); i++ {
-		band := bands[i]
-		lineCount := bandLineCount(band)
-
-		if lineCount == 1 {
-			if i < len(bands)-1 {
-				// Merge down: add blocks to next band
-				mergeBandInto(bands[i+1], band)
-				continue
-			} else if len(result) > 0 {
-				// Last band with single line: merge up into previous result band
-				mergeBandInto(result[len(result)-1], band)
-				continue
-			}
-		}
-
-		result = append(result, band)
-	}
-
-	return result
 }
 
 // mergeSingleColumnBands merges consecutive bands that both have a single column
