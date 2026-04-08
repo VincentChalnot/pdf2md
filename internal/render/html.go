@@ -65,18 +65,18 @@ func HTML(w io.Writer, doc *model.Document) error {
 
 	// Zone colors for visual differentiation
 	zoneColors := []string{
-		"rgba(255, 200, 0, 0.07)",   // Yellow
-		"rgba(0, 200, 100, 0.07)",   // Green
-		"rgba(200, 0, 200, 0.07)",   // Magenta
-		"rgba(0, 150, 255, 0.07)",   // Blue
-		"rgba(255, 100, 0, 0.07)",   // Orange
+		"rgba(255, 200, 0, 0.07)", // Yellow
+		"rgba(0, 200, 100, 0.07)", // Green
+		"rgba(200, 0, 200, 0.07)", // Magenta
+		"rgba(0, 150, 255, 0.07)", // Blue
+		"rgba(255, 100, 0, 0.07)", // Orange
 	}
 	zoneStrokeColors := []string{
-		"rgba(255, 200, 0, 0.5)",   // Yellow
-		"rgba(0, 200, 100, 0.5)",   // Green
-		"rgba(200, 0, 200, 0.5)",   // Magenta
-		"rgba(0, 150, 255, 0.5)",   // Blue
-		"rgba(255, 100, 0, 0.5)",   // Orange
+		"rgba(255, 200, 0, 0.5)", // Yellow
+		"rgba(0, 200, 100, 0.5)", // Green
+		"rgba(200, 0, 200, 0.5)", // Magenta
+		"rgba(0, 150, 255, 0.5)", // Blue
+		"rgba(255, 100, 0, 0.5)", // Orange
 	}
 
 	for _, page := range doc.Pages {
@@ -87,6 +87,10 @@ func HTML(w io.Writer, doc *model.Document) error {
 		var bandColumns []string
 		for _, zone := range pageLayout.Zones {
 			for _, band := range zone.Bands {
+				// Don't count single line bands toward the maximum amount of bands allowed in a page
+				if layout.BandLineCount(band) == 1 {
+					continue
+				}
 				cols := len(band.VerticalCuts) + 1
 				bandColumns = append(bandColumns, fmt.Sprintf("%d", cols))
 			}
