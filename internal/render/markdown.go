@@ -86,7 +86,7 @@ func isFlowSidebar(flow model.Flow, page model.Page) bool {
 		if strings.TrimSpace(line.Text) == "" {
 			continue
 		}
-		if line.Role == model.RoleH1 || line.Role == model.RoleH2 || line.Role == model.RoleH3 {
+		if line.Role == model.RoleH1 || line.Role == model.RoleH2 || line.Role == model.RoleH3 || line.Role == model.RoleH4 || line.Role == model.RoleH5 {
 			return true
 		}
 		// First non-empty line is not a heading
@@ -136,9 +136,9 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 		shouldEndParagraph := false
 		if i > 0 {
 			// Headings always end the current paragraph
-			if role == model.RoleH1 || role == model.RoleH2 || role == model.RoleH3 {
+			if role == model.RoleH1 || role == model.RoleH2 || role == model.RoleH3 || role == model.RoleH4 || role == model.RoleH5 {
 				shouldEndParagraph = true
-			} else if lastRole == model.RoleH1 || lastRole == model.RoleH2 || lastRole == model.RoleH3 {
+			} else if lastRole == model.RoleH1 || lastRole == model.RoleH2 || lastRole == model.RoleH3 || lastRole == model.RoleH4 || lastRole == model.RoleH5 {
 				// Previous line was a heading, start new paragraph
 				shouldEndParagraph = true
 			} else {
@@ -157,7 +157,8 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 		}
 
 		// Handle heading lines
-		if role == model.RoleH1 {
+		switch role {
+		case model.RoleH1:
 			if paragraph.Len() > 0 {
 				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
 				paragraph.Reset()
@@ -165,7 +166,7 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 			output.WriteString("# ")
 			output.WriteString(text)
 			output.WriteString("\n\n")
-		} else if role == model.RoleH2 {
+		case model.RoleH2:
 			if paragraph.Len() > 0 {
 				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
 				paragraph.Reset()
@@ -173,7 +174,7 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 			output.WriteString("## ")
 			output.WriteString(text)
 			output.WriteString("\n\n")
-		} else if role == model.RoleH3 {
+		case model.RoleH3:
 			if paragraph.Len() > 0 {
 				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
 				paragraph.Reset()
@@ -181,7 +182,23 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 			output.WriteString("### ")
 			output.WriteString(text)
 			output.WriteString("\n\n")
-		} else {
+		case model.RoleH4:
+			if paragraph.Len() > 0 {
+				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				paragraph.Reset()
+			}
+			output.WriteString("#### ")
+			output.WriteString(text)
+			output.WriteString("\n\n")
+		case model.RoleH5:
+			if paragraph.Len() > 0 {
+				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				paragraph.Reset()
+			}
+			output.WriteString("##### ")
+			output.WriteString(text)
+			output.WriteString("\n\n")
+		default:
 			// Body or small line - add to paragraph
 			if paragraph.Len() > 0 {
 				paragraph.WriteString(" ")

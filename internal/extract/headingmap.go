@@ -76,18 +76,46 @@ func AssignFontRoles(doc *model.Document) {
 	// 4. Build FontMap.
 	fontMap := make(map[string]model.FontSpec)
 
-	// Assign heading roles: h1, h2, h3 (cap at h3).
-	headingRoles := []model.FontRole{model.RoleH1, model.RoleH2, model.RoleH3}
-	for i, fe := range larger {
-		role := model.RoleH3
-		if i < len(headingRoles) {
-			role = headingRoles[i]
-		}
-		fontMap[fe.key] = model.FontSpec{
-			Size:    statsMap[fe.key].size,
-			Role:    role,
-			NbChars: statsMap[fe.key].nbChars,
-			NbLines: statsMap[fe.key].nbLines,
+	// Assign heading roles by evenly splitting the range from bodySize*1.2 to maxSize.
+	if len(larger) > 0 {
+		maxSize := larger[0].size
+		minHeadingSize := bodySize * 1.2
+		span := maxSize - minHeadingSize
+
+		for _, fe := range larger {
+			role := model.RoleH1
+			if span > 0 {
+				// Normalize position within the heading size range: 0 is minHeadingSize, 1 is maxSize.
+				// We want to map this evenly into 5 buckets: h5 to h1.
+				pos := (fe.size - minHeadingSize) / span
+				// 1.0 -> level 1, 0.0 -> level 5
+				level := 5 - int(math.Ceil(pos*5))
+				if level < 1 {
+					level = 1
+				} else if level > 5 {
+					level = 5
+				}
+
+				switch level {
+				case 1:
+					role = model.RoleH1
+				case 2:
+					role = model.RoleH2
+				case 3:
+					role = model.RoleH3
+				case 4:
+					role = model.RoleH4
+				case 5:
+					role = model.RoleH5
+				}
+			}
+
+			fontMap[fe.key] = model.FontSpec{
+				Size:    statsMap[fe.key].size,
+				Role:    role,
+				NbChars: statsMap[fe.key].nbChars,
+				NbLines: statsMap[fe.key].nbLines,
+			}
 		}
 	}
 

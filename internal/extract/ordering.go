@@ -28,11 +28,8 @@ func EstablishReadingOrder(doc *model.Document) {
 		// Step 2: Drop cap detection and merging.
 		page.Flows = mergeDropCaps(page.Flows, columnGroups, bodySize)
 
-		// Step 3: Re-identify parallel column groups since indices may have changed.
-		columnGroups = identifyColumnGroups(page.Flows)
-
-		// Step 4: Final ordering.
-		page.Flows = orderFlows(page.Flows, columnGroups)
+		// Step 3: Final ordering.
+		page.Flows = orderFlows(page.Flows)
 	}
 }
 
@@ -229,77 +226,66 @@ func getDropCapLetter(flow model.Flow) string {
 	return strings.TrimSpace(flow.Lines[0].Text)
 }
 
-// orderFlows orders flows by yMin, with column groups ordered left-to-right.
-func orderFlows(flows []model.Flow, groups []columnGroup) []model.Flow {
+// orderFlows orders flows by forming horizontal bands and reading column-by-column inside each band.
+func orderFlows(flows []model.Flow) []model.Flow {
 	if len(flows) == 0 {
 		return flows
 	}
 
-	// Build a map of flow to its order key.
-	type orderKey struct {
-		yMin    float64
-		colIdx  int
-		flowIdx int
-	}
-
-	flowToKey := make(map[int]orderKey)
-
-	// Assign order keys to flows in column groups.
-	for _, g := range groups {
-		for colIdx, flowIdx := range g.flows {
-			flowToKey[flowIdx] = orderKey{
-				yMin:    flows[flowIdx].YMin,
-				colIdx:  colIdx,
-				flowIdx: flowIdx,
-			}
-		}
-	}
-
-	// Flows not in any group get a simple yMin-based key.
-	for i := range flows {
-		if _, exists := flowToKey[i]; !exists {
-			flowToKey[i] = orderKey{
-				yMin:    flows[i].YMin,
-				colIdx:  0,
-				flowIdx: i,
-			}
-		}
-	}
-
-	// Sort flows by yMin, then by colIdx, then by original index.
-	type flowWithKey struct {
-		flow model.Flow
-		key  orderKey
-	}
-
-	var sortable []flowWithKey
-	for i, flow := range flows {
-		sortable = append(sortable, flowWithKey{
-			flow: flow,
-			key:  flowToKey[i],
-		})
-	}
-
-	sort.Slice(sortable, func(i, j int) bool {
-		ki, kj := sortable[i].key, sortable[j].key
-
-		// Primary: yMin
-		if math.Abs(ki.yMin-kj.yMin) > 1.0 {
-			return ki.yMin < kj.yMin
-		}
-
-		// Secondary: colIdx (left to right)
-		if ki.colIdx != kj.colIdx {
-			return ki.colIdx < kj.colIdx
-		}
-
-		// Tertiary: original index
-		return ki.flowIdx < kj.flowIdx
+	// 1. Sort all flows initially by YMin to process top-to-bottom
+	sorted := make([]model.Flow, len(flows))
+	copy(sorted, flows)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].YMin < sorted[j].YMin
 	})
 
+	// 2. Group into Horizontal Bands based on Y-overlap
+	type Band struct {
+		yMax  float64
+		flows []model.Flow
+	}
+	var bands []Band
+
+	for _, flow := range sorted {
+		if len(bands) == 0 {
+			bands = append(bands, Band{yMax: flow.YMax, flows: []model.Flow{flow}})
+			continue
+		}
+
+		lastIdx := len(bands) - 1
+		// Check if flow overlaps vertically with the current band.
+		// A flow overlaps if its top is above the band's bottom (with a 1.0 point tolerance)
+		if flow.YMin < bands[lastIdx].yMax-1.0 {
+			bands[lastIdx].flows = append(bands[lastIdx].flows, flow)
+			if flow.YMax > bands[lastIdx].yMax {
+				bands[lastIdx].yMax = flow.YMax
+			}
+		} else {
+			bands = append(bands, Band{yMax: flow.YMax, flows: []model.Flow{flow}})
+		}
+	}
+
+	// 3. Sort within each band
 	var result []model.Flow
-	for _, item := range sortable {
-		result = append(result, item.flow)
+	for _, band := range bands {
+		sort.Slice(band.flows, func(i, j int) bool {
+			f1, f2 := band.flows[i], band.flows[j]
+
+			// Primary: XMin (Column by Column left to right)
+			if math.Abs(f1.XMin-f2.XMin) > 10.0 {
+				return f1.XMin < f2.XMin
+			}
+
+			// Secondary: YMin (Top to bottom within the same column)
+			if math.Abs(f1.YMin-f2.YMin) > 1.0 {
+				return f1.YMin < f2.YMin
+			}
+
+			// Fallback: XMax
+			return f1.XMax < f2.XMax
+		})
+
+		result = append(result, band.flows...)
 	}
 
 	return result

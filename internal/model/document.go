@@ -23,6 +23,8 @@ const (
 	RoleH1       FontRole = "h1"
 	RoleH2       FontRole = "h2"
 	RoleH3       FontRole = "h3"
+	RoleH4       FontRole = "h4"
+	RoleH5       FontRole = "h5"
 	RoleBody     FontRole = "body"
 	RoleSmall    FontRole = "small"
 	RoleExcluded FontRole = "excluded"
