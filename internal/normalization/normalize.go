@@ -243,7 +243,7 @@ func passB(candidates []*GapCandidate, allLines []*VirtualLine, lineSplitRatio f
 			current = append(current, gc)
 			continue
 		}
-		if gc.YLine-current[len(current)-1].YLine < LineNeighborhood {
+		if gc.YLine-current[len(current)-1].YLine <= LineNeighborhood {
 			current = append(current, gc)
 		} else {
 			neighborhoods = append(neighborhoods, current)
@@ -679,7 +679,11 @@ func passE(lines []*VirtualLine) []LogicalBlock {
 		// with a Y gap >= MergeGapThreshold between the parent blocks.
 		blockSepOK := checkBlockSeparation(prevLine, line)
 
-		if sameFamily && yGap < MergeGapThreshold && blockSepOK {
+		// X-overlap check: lines at the same Y position but in different X ranges
+		// (e.g. split from a structural line into left/right columns) should not merge.
+		xOverlap := checkXOverlap(&current, line)
+
+		if sameFamily && yGap < MergeGapThreshold && blockSepOK && xOverlap {
 			appendToLogicalBlock(&current, line)
 		} else {
 			finalizeLogicalBlock(&current)
@@ -771,4 +775,29 @@ func checkBlockSeparation(prev, curr *VirtualLine) bool {
 	// Check if the blocks are separated by a large Y gap.
 	blockGap := curr.SourceBlock.YMin - prev.SourceBlock.YMax
 	return blockGap < MergeGapThreshold
+}
+
+// checkXOverlap checks whether a new line has sufficient X overlap with the
+// current LogicalBlock to be merged. Lines at the same Y but in different
+// X ranges (e.g. left vs right column after structural splitting) should not merge.
+func checkXOverlap(lb *LogicalBlock, line *VirtualLine) bool {
+	// If the block has no width yet, allow.
+	blockWidth := lb.XMax - lb.XMin
+	lineWidth := line.XMax - line.XMin
+	if blockWidth <= 0 || lineWidth <= 0 {
+		return true
+	}
+
+	// Check if the line X range overlaps with the block X range.
+	overlapMin := math.Max(lb.XMin, line.XMin)
+	overlapMax := math.Min(lb.XMax, line.XMax)
+	overlap := overlapMax - overlapMin
+
+	if overlap <= 0 {
+		return false
+	}
+
+	// Require at least 30% overlap with the narrower range.
+	narrower := math.Min(blockWidth, lineWidth)
+	return overlap >= narrower*0.3
 }
