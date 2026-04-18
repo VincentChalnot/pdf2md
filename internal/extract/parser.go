@@ -207,6 +207,7 @@ func parseBBoxReader(r io.Reader) (*model.Document, error) {
 						YMax:     lineYMax,
 						FontSize: fontSize,
 						Text:     text,
+						Words:    words,
 					}
 					blockLines = append(blockLines, line)
 					allLines = append(allLines, line) // For backward compatibility

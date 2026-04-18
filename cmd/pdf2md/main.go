@@ -11,6 +11,7 @@ import (
 
 	"github.com/user/pdf2md/internal/extract"
 	"github.com/user/pdf2md/internal/model"
+	"github.com/user/pdf2md/internal/normalization"
 	"github.com/user/pdf2md/internal/render"
 )
 
@@ -20,6 +21,8 @@ func main() {
 	bboxCache := flag.String("bbox-cache", "", "Path to existing bbox-layout HTML file to use instead of running pdftotext")
 	minTextHeight := flag.Float64("min-text-height", 2.0, "Minimum word height in PDF units to keep")
 	pretty := flag.Bool("pretty", false, "Pretty-print JSON output")
+	lineSplitRatio := flag.Float64("line-split-ratio", 0, "Override line split ratio for normalization (0 = use default)")
+	debugNormalization := flag.Bool("debug-normalization", false, "Show normalization debug overlays in HTML output")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: pdf2md [flags] <filepath>...\n\nFlags:\n")
@@ -34,14 +37,14 @@ func main() {
 	}
 
 	for _, inputPath := range flag.Args() {
-		if err := processFile(inputPath, *format, *cacheDir, *bboxCache, *minTextHeight, *pretty); err != nil {
+		if err := processFile(inputPath, *format, *cacheDir, *bboxCache, *minTextHeight, *pretty, *lineSplitRatio, *debugNormalization); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 	}
 }
 
-func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight float64, pretty bool) error {
+func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight float64, pretty bool, lineSplitRatio float64, debugNormalization bool) error {
 	ext := strings.ToLower(filepath.Ext(inputPath))
 
 	// Validate format value.
@@ -106,7 +109,7 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 		}
 	} else {
 		var err error
-		doc, err = bboxToDocument(bboxPath, inputPath, minTextHeight)
+		doc, err = bboxToDocument(bboxPath, inputPath, minTextHeight, lineSplitRatio, debugNormalization || format == "html")
 		if err != nil {
 			return err
 		}
@@ -131,7 +134,7 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 
 	// Step 3: JSON → HTML
 	if format == "html" {
-		return render.HTML(os.Stdout, doc)
+		return render.HTML(os.Stdout, doc, debugNormalization)
 	}
 
 	// Step 4: JSON → Markdown
@@ -183,7 +186,7 @@ func pdfToBBox(pdfPath, baseName, cacheDir, bboxCache string) (string, func(), e
 }
 
 // bboxToDocument parses bbox HTML and applies the full extraction pipeline.
-func bboxToDocument(bboxPath, inputPath string, minTextHeight float64) (*model.Document, error) {
+func bboxToDocument(bboxPath, inputPath string, minTextHeight, lineSplitRatio float64, debugNorm bool) (*model.Document, error) {
 	doc, err := extract.ParseBBoxHTML(bboxPath)
 	if err != nil {
 		return nil, err
@@ -193,6 +196,12 @@ func bboxToDocument(bboxPath, inputPath string, minTextHeight float64) (*model.D
 	extract.Clean(doc, minTextHeight)
 	extract.AssignFontRoles(doc)
 	extract.ApplyRolesToLines(doc)
+
+	// Step 0: Line & Block Normalization.
+	normalization.ApplyNormalization(doc, normalization.Options{
+		LineSplitRatio: lineSplitRatio,
+	}, debugNorm)
+
 	extract.EstablishReadingOrder(doc)
 
 	return doc, nil

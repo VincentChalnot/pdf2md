@@ -8,13 +8,16 @@ import (
 
 	"github.com/user/pdf2md/internal/layout"
 	"github.com/user/pdf2md/internal/model"
+	"github.com/user/pdf2md/internal/normalization"
 )
 
 // HTML writes a self-contained HTML document with SVG-based page rendering.
 // Each page is rendered as an inline SVG with exact dimensions from the document.
 // Lines use textLength and lengthAdjust to fit within their bounding boxes.
 // Debug overlays show flow, block, and line boundaries.
-func HTML(w io.Writer, doc *model.Document) error {
+// When debugNorm is true and normalization debug data is available, an additional
+// normalization overlay layer is rendered.
+func HTML(w io.Writer, doc *model.Document, debugNorm ...bool) error {
 	if _, err := fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -43,6 +46,10 @@ func HTML(w io.Writer, doc *model.Document) error {
   .debug-band-outline { stroke: rgba(100, 100, 100, 0.2); stroke-width: 0.5; fill: none; }
   .debug-horizontal-cut { stroke: rgba(200, 80, 0, 0.6); stroke-width: 1; stroke-dasharray: 8 4; }
   .debug-vertical-cut { stroke: rgba(0, 100, 200, 0.5); stroke-width: 1; stroke-dasharray: 4 4; }
+  .debug-norm-gap-structural { stroke: red; stroke-width: 1; fill: rgba(220, 0, 0, 0.20); }
+  .debug-norm-gap-isolated { stroke: orange; stroke-width: 1; stroke-dasharray: 4 4; fill: rgba(255, 160, 0, 0.15); }
+  .debug-norm-lblock-text { stroke: rgba(100, 100, 100, 0.4); stroke-width: 1; fill: none; }
+  .debug-norm-lblock-structural { stroke: rgba(255, 140, 0, 0.6); stroke-width: 1; fill: none; }
 </style>
 </head>
 <body>
@@ -253,6 +260,14 @@ func HTML(w io.Writer, doc *model.Document) error {
 			return err
 		}
 
+		// Layer 3.5: Normalization debug overlays (between line rects and text content)
+		showNorm := len(debugNorm) > 0 && debugNorm[0]
+		if showNorm {
+			if err := renderNormalizationDebug(w, &page); err != nil {
+				return err
+			}
+		}
+
 		// Layer 4: Text content (top layer)
 		if _, err := fmt.Fprint(w, "<g class=\"text-layer\">\n"); err != nil {
 			return err
@@ -291,4 +306,108 @@ func getBodyLineHeight(doc *model.Document) float64 {
 		}
 	}
 	return 10.0 // typical body text size in PDF points
+}
+
+// renderNormalizationDebug renders the normalization debug SVG layer for a page.
+func renderNormalizationDebug(w io.Writer, page *model.Page) error {
+	dd, ok := page.NormDebugData.(*normalization.DebugData)
+	if !ok || dd == nil {
+		return nil
+	}
+
+	if _, err := fmt.Fprint(w, "<g class=\"debug-normalization\">\n"); err != nil {
+		return err
+	}
+
+	// Sub-layer 1: LogicalBlock outlines.
+	for _, lb := range dd.LogicalBlocks {
+		class := "debug-norm-lblock-text"
+		bType := "TEXT"
+		if lb.Type == normalization.BlockStructural {
+			class = "debug-norm-lblock-structural"
+			bType = "STRUCTURAL"
+		}
+		if _, err := fmt.Fprintf(w, "<rect x=\"%g\" y=\"%g\" width=\"%g\" height=\"%g\" class=\"%s\"><title>%s | lines:%d | sourceBlocks:%d</title></rect>\n",
+			lb.XMin, lb.YMin, lb.XMax-lb.XMin, lb.YMax-lb.YMin, class,
+			bType, len(lb.Lines), len(lb.SourceBlocks)); err != nil {
+			return err
+		}
+	}
+
+	// Sub-layer 2: VirtualLine rects (color by classification).
+	for _, vl := range dd.VirtualLines {
+		var fill, stroke string
+		switch vl.Classification {
+		case normalization.LineLeft:
+			fill = "rgba(0, 180, 0, 0.10)"
+			stroke = "green"
+		case normalization.LineRight:
+			fill = "rgba(0, 100, 255, 0.10)"
+			stroke = "blue"
+		case normalization.LineJustified:
+			fill = "rgba(150, 0, 255, 0.10)"
+			stroke = "purple"
+		case normalization.LineStructural:
+			fill = "rgba(255, 140, 0, 0.14)"
+			stroke = "orange"
+		default:
+			fill = "rgba(128, 128, 128, 0.05)"
+			stroke = "gray"
+		}
+
+		// Count structural and isolated gaps.
+		structGaps, isoGaps := 0, 0
+		for _, gc := range vl.GapCandidates {
+			if gc.Type == normalization.GapIsolated {
+				isoGaps++
+			} else {
+				structGaps++
+			}
+		}
+
+		titleText := fmt.Sprintf("%s | words:%d | emptyL:%.1fpt emptyR:%.1fpt | coverage:%.2f | σ:%.1fpt | gaps:%dstructural/%disolated",
+			vl.Classification.String(), len(vl.Words),
+			vl.EmptyLeft, vl.EmptyRight, vl.Coverage, vl.GapSigma,
+			structGaps, isoGaps)
+
+		if _, err := fmt.Fprintf(w, "<rect x=\"%g\" y=\"%g\" width=\"%g\" height=\"%g\" fill=\"%s\" stroke=\"%s\" stroke-width=\"0.5\"><title>%s</title></rect>\n",
+			vl.XMin, vl.YMin, vl.XMax-vl.XMin, vl.YMax-vl.YMin, fill, stroke,
+			html.EscapeString(titleText)); err != nil {
+			return err
+		}
+	}
+
+	// Sub-layer 3: GapCandidate rects.
+	for _, gc := range dd.GapCandidates {
+		if gc.ParentLine == nil {
+			continue
+		}
+
+		var class string
+		colSize := 0
+		switch gc.Type {
+		case normalization.GapColumnType, normalization.GapTableType:
+			class = "debug-norm-gap-structural"
+		default:
+			class = "debug-norm-gap-isolated"
+		}
+		if gc.VerticalGroup != nil {
+			colSize = len(gc.VerticalGroup.Gaps)
+		}
+
+		titleText := fmt.Sprintf("%s | width:%.1fpt | column_size:%dlines | xCenter:%.1f",
+			gc.Type.String(), gc.Width, colSize, gc.XCenter)
+
+		if _, err := fmt.Fprintf(w, "<rect x=\"%g\" y=\"%g\" width=\"%g\" height=\"%g\" class=\"%s\"><title>%s</title></rect>\n",
+			gc.XLeft, gc.ParentLine.YMin, gc.XRight-gc.XLeft, gc.ParentLine.YMax-gc.ParentLine.YMin,
+			class, html.EscapeString(titleText)); err != nil {
+			return err
+		}
+	}
+
+	if _, err := fmt.Fprint(w, "</g>\n"); err != nil {
+		return err
+	}
+
+	return nil
 }

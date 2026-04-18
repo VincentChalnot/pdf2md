@@ -34,10 +34,11 @@ const (
 
 // Page represents a single page in the document.
 type Page struct {
-	Number int     `json:"number"`
-	Width  float64 `json:"width"`
-	Height float64 `json:"height"`
-	Flows  []Flow  `json:"flows"`
+	Number        int     `json:"number"`
+	Width         float64 `json:"width"`
+	Height        float64 `json:"height"`
+	Flows         []Flow  `json:"flows"`
+	NormDebugData any     `json:"-"` // *normalization.DebugData when debug enabled
 }
 
 // Flow represents a grouped collection of text blocks.
@@ -69,6 +70,7 @@ type Line struct {
 	FontSize float64  `json:"fontSize"`
 	Role     FontRole `json:"role,omitempty"`
 	Text     string   `json:"text"`
+	Words    []Word   `json:"-"` // preserved from parsing for normalization
 }
 
 // Word represents a word parsed from bbox-layout (used during processing, not in final model).
