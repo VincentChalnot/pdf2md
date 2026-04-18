@@ -29,6 +29,7 @@ const (
 	RoleSmall    FontRole = "small"
 	RoleExcluded FontRole = "excluded"
 	RoleUnknown  FontRole = "unknown"
+	RoleTable    FontRole = "table"
 )
 
 // Page represents a single page in the document.

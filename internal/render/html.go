@@ -29,6 +29,7 @@ func HTML(w io.Writer, doc *model.Document) error {
   .h2 { fill: #e67e22; font-weight: bold; }
   .h3 { fill: #f1c40f; }
   .body { fill: #333; }
+  .table { fill: #2980b9; font-family: "Courier New", Courier, monospace; white-space: pre; }
   .small { fill: #7f8c8d; }
   .excluded { fill: #c0392b; text-decoration: line-through; }
   .unknown { fill: #95a5a6; }

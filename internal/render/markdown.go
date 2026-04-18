@@ -157,7 +157,21 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 		}
 
 		// Handle heading lines
+		if lastRole == model.RoleTable && role != model.RoleTable {
+			output.WriteString("```\n\n")
+		}
+
 		switch role {
+		case model.RoleTable:
+			if paragraph.Len() > 0 {
+				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				paragraph.Reset()
+			}
+			if lastRole != model.RoleTable {
+				output.WriteString("```text\n")
+			}
+			output.WriteString(text)
+			output.WriteString("\n")
 		case model.RoleH1:
 			if paragraph.Len() > 0 {
 				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
@@ -215,6 +229,10 @@ func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, first
 
 		lastRole = role
 		lastYMax = line.YMax
+	}
+
+	if lastRole == model.RoleTable {
+		output.WriteString("```\n\n")
 	}
 
 	// Flush any remaining paragraph
