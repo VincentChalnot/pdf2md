@@ -18,6 +18,7 @@ import (
 // When debugNorm is true and normalization debug data is available, an additional
 // normalization overlay layer is rendered.
 func HTML(w io.Writer, doc *model.Document, debugNorm ...bool) error {
+	showNormalization := len(debugNorm) > 0 && debugNorm[0]
 	if _, err := fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -261,8 +262,7 @@ func HTML(w io.Writer, doc *model.Document, debugNorm ...bool) error {
 		}
 
 		// Layer 3.5: Normalization debug overlays (between line rects and text content)
-		showNorm := len(debugNorm) > 0 && debugNorm[0]
-		if showNorm {
+		if showNormalization {
 			if err := renderNormalizationDebug(w, &page); err != nil {
 				return err
 			}

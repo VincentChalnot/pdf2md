@@ -303,7 +303,7 @@ func passB(candidates []*GapCandidate, allLines []*VirtualLine, lineSplitRatio f
 
 			// Classify.
 			if len(grp) >= MinStructuralLines {
-				col.Type = gapColumnStructural // placeholder, will be set in Pass C
+				col.Type = GapUnclassified // will be classified in Pass C
 			} else if len(grp) == 1 {
 				col.Type = GapIsolated // temp, will assign to gap
 			}
@@ -365,9 +365,6 @@ func passB(candidates []*GapCandidate, allLines []*VirtualLine, lineSplitRatio f
 
 	return gapColumns
 }
-
-// gapColumnStructural is a sentinel for structural columns before Pass C classifies them.
-const gapColumnStructural GapType = -1
 
 // findClosestGap finds or creates a GapCandidate in the line closest to targetX.
 func findClosestGap(vl *VirtualLine, targetX float64) *GapCandidate {
@@ -671,9 +668,10 @@ func passE(lines []*VirtualLine) []LogicalBlock {
 	for i := 1; i < len(lines); i++ {
 		line := lines[i]
 		prevLine := lines[i-1]
+		lastInBlock := current.Lines[len(current.Lines)-1]
 
 		yGap := line.YMin - prevLine.YMax
-		sameFamily := isSameClassFamily(current.Lines[len(current.Lines)-1].Classification, line.Classification)
+		sameFamily := isSameClassFamily(lastInBlock.Classification, line.Classification)
 
 		// Poppler block separation constraint: check if there's a block boundary
 		// with a Y gap >= MergeGapThreshold between the parent blocks.
