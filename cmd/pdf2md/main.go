@@ -20,6 +20,7 @@ func main() {
 	bboxCache := flag.String("bbox-cache", "", "Path to existing bbox-layout HTML file to use instead of running pdftotext")
 	minTextHeight := flag.Float64("min-text-height", 2.0, "Minimum word height in PDF units to keep")
 	pretty := flag.Bool("pretty", false, "Pretty-print JSON output")
+	pageSeparator := flag.Bool("page-separator", false, "Insert a horizontal rule (---) between pages in markdown output")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: pdf2md [flags] <filepath>...\n\nFlags:\n")
@@ -34,14 +35,14 @@ func main() {
 	}
 
 	for _, inputPath := range flag.Args() {
-		if err := processFile(inputPath, *format, *cacheDir, *bboxCache, *minTextHeight, *pretty); err != nil {
+		if err := processFile(inputPath, *format, *cacheDir, *bboxCache, *minTextHeight, *pretty, *pageSeparator); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 	}
 }
 
-func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight float64, pretty bool) error {
+func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight float64, pretty bool, pageSeparator bool) error {
 	ext := strings.ToLower(filepath.Ext(inputPath))
 
 	// Validate format value.
@@ -136,7 +137,7 @@ func processFile(inputPath, format, cacheDir, bboxCache string, minTextHeight fl
 
 	// Step 4: JSON → Markdown
 	if format == "markdown" {
-		return render.ToMarkdown(os.Stdout, doc)
+		return render.ToMarkdown(os.Stdout, doc, pageSeparator)
 	}
 
 	return nil

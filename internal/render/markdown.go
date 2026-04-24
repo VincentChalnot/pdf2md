@@ -11,7 +11,8 @@ import (
 
 // ToMarkdown converts a parsed Document to Markdown format.
 // This is a deterministic conversion based on the JSON structure with no LLM involved.
-func ToMarkdown(w io.Writer, doc *model.Document) error {
+// If pageSeparator is true, a horizontal rule (---) is inserted between pages.
+func ToMarkdown(w io.Writer, doc *model.Document, pageSeparator bool) error {
 	if len(doc.Pages) == 0 {
 		return nil
 	}
@@ -47,6 +48,11 @@ func ToMarkdown(w io.Writer, doc *model.Document) error {
 			if !isSidebar && !(pageIdx == len(doc.Pages)-1 && flowIdx == len(page.Flows)-1) {
 				output.WriteString("\n")
 			}
+		}
+
+		// Insert page separator after each page except the last
+		if pageSeparator && pageIdx < len(doc.Pages)-1 {
+			output.WriteString("\n---\n\n")
 		}
 	}
 

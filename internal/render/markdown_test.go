@@ -26,7 +26,7 @@ func TestToMarkdownBasic(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestToMarkdownHeadings(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestToMarkdownSmallText(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -135,7 +135,7 @@ func TestToMarkdownSidebar(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -176,7 +176,7 @@ func TestToMarkdownExcludedAndUnknown(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestToMarkdownEmptyDocument(t *testing.T) {
 	doc := makeDoc("empty.pdf", []model.Page{})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -232,7 +232,7 @@ func TestToMarkdownParagraphMerging(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -285,7 +285,7 @@ func TestToMarkdownMultiplePages(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
@@ -329,7 +329,7 @@ func TestToMarkdownNoH1(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := ToMarkdown(&buf, doc); err != nil {
+	if err := ToMarkdown(&buf, doc, false); err != nil {
 		t.Fatalf("ToMarkdown() error: %v", err)
 	}
 
