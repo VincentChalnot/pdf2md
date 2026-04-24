@@ -3,14 +3,19 @@ package render
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 
 	"github.com/user/pdf2md/internal/model"
 )
 
-// ToMarkdown converts a parsed Document to Markdown format.
-// This is a deterministic conversion based on the JSON structure with no LLM involved.
+// ToMarkdown converts a processed Document to Markdown.
+//
+// The document is expected to have already been fully processed by the pipeline
+// (PreProcess → Process → PostProcess), meaning:
+//   - Flow.IsSidebar is set by the SidebarHandler.
+//   - Line.StartsNewParagraph is set by the ReflowHandler.
+//   - Line.Role is set by the FontRolesHandler.
+//
 // If pageSeparator is true, a horizontal rule (---) is inserted between pages.
 func ToMarkdown(w io.Writer, doc *model.Document, pageSeparator bool) error {
 	if len(doc.Pages) == 0 {
@@ -18,261 +23,176 @@ func ToMarkdown(w io.Writer, doc *model.Document, pageSeparator bool) error {
 	}
 
 	var firstH1 string
-	var firstH1Used bool
+	var firstH1Emitted bool
 	var output strings.Builder
 
-	// Process all pages
 	for pageIdx, page := range doc.Pages {
-		// Process flows in order (already sorted by extract pipeline)
 		for flowIdx, flow := range page.Flows {
 			if len(flow.Lines) == 0 {
 				continue
 			}
 
-			// Check if this flow is a sidebar
-			isSidebar := isFlowSidebar(flow, page)
-
-			if isSidebar {
+			if flow.IsSidebar {
 				output.WriteString("***\n\n")
 			}
 
-			// Render the flow
-			renderFlow(&output, flow, page, &firstH1, &firstH1Used)
+			renderFlow(&output, flow, &firstH1, &firstH1Emitted)
 
-			// Add separator after sidebar
-			if isSidebar {
+			if flow.IsSidebar {
 				output.WriteString("\n***\n")
 			}
 
-			// Add blank line between flows (but not after last flow on last page)
-			if !isSidebar && !(pageIdx == len(doc.Pages)-1 && flowIdx == len(page.Flows)-1) {
+			isLastFlow := pageIdx == len(doc.Pages)-1 && flowIdx == len(page.Flows)-1
+			if !flow.IsSidebar && !isLastFlow {
 				output.WriteString("\n")
 			}
 		}
 
-		// Insert page separator after each page except the last
 		if pageSeparator && pageIdx < len(doc.Pages)-1 {
 			output.WriteString("\n---\n\n")
 		}
 	}
 
-	// Write the document title if we found an h1
+	// Emit the document title (first H1) at the very top.
 	if firstH1 != "" {
 		if _, err := fmt.Fprintf(w, "# %s\n\n", firstH1); err != nil {
 			return err
 		}
 	}
 
-	// Write the rest of the document
 	_, err := w.Write([]byte(output.String()))
 	return err
 }
 
-// isFlowSidebar determines if a flow should be rendered as a sidebar.
-func isFlowSidebar(flow model.Flow, page model.Page) bool {
-	// Check width constraint: flow width < 70% of page width
-	flowWidth := flow.XMax - flow.XMin
-	if flowWidth >= page.Width*0.7 {
-		return false
-	}
-
-	// Check position constraint: flow starts in right half (> 40% from left)
-	if flow.XMin <= page.Width*0.4 {
-		return false
-	}
-
-	// Check height constraint: flow height < 70% of page height
-	flowHeight := flow.YMax - flow.YMin
-	if flowHeight >= page.Height*0.7 {
-		return false
-	}
-
-	// Check if first non-empty line is a heading
-	for _, line := range flow.Lines {
-		if strings.TrimSpace(line.Text) == "" {
-			continue
-		}
-		if line.Role == model.RoleH1 || line.Role == model.RoleH2 || line.Role == model.RoleH3 || line.Role == model.RoleH4 || line.Role == model.RoleH5 {
-			return true
-		}
-		// First non-empty line is not a heading
-		return false
-	}
-
-	return false
-}
-
-// renderFlow processes a single flow and appends to the output.
-func renderFlow(output *strings.Builder, flow model.Flow, page model.Page, firstH1 *string, firstH1Used *bool) {
+// renderFlow formats a single flow and appends it to output.
+func renderFlow(output *strings.Builder, flow model.Flow, firstH1 *string, firstH1Emitted *bool) {
 	if len(flow.Lines) == 0 {
 		return
 	}
 
-	// Calculate median body line height for paragraph merging
-	bodyLineHeight := calculateMedianBodyLineHeight(flow)
-
 	var paragraph strings.Builder
 	var lastRole model.FontRole
-	var lastYMax float64
+	inTable := false
 
-	for i, line := range flow.Lines {
-		// Skip excluded and unknown lines
+	for _, line := range flow.Lines {
 		if line.Role == model.RoleExcluded || line.Role == model.RoleUnknown {
 			continue
 		}
 
-		text := line.Text
-		role := line.Role
-
-		// Capture first h1 for document title (and skip rendering it in the flow)
-		if role == model.RoleH1 && *firstH1 == "" {
-			*firstH1 = text
-			*firstH1Used = false
+		// Capture the first H1 as the document title (suppress inline rendering).
+		if line.Role == model.RoleH1 && *firstH1 == "" {
+			*firstH1 = line.Text
 		}
-
-		// Skip rendering the first h1 (it will be the document title)
-		if role == model.RoleH1 && !*firstH1Used && text == *firstH1 {
-			*firstH1Used = true
-			lastRole = role
-			lastYMax = line.YMax
+		if line.Role == model.RoleH1 && !*firstH1Emitted && line.Text == *firstH1 {
+			*firstH1Emitted = true
+			lastRole = line.Role
 			continue
 		}
 
-		// Check if we need to end the current paragraph
-		shouldEndParagraph := false
-		if i > 0 {
-			// Headings always end the current paragraph
-			if role == model.RoleH1 || role == model.RoleH2 || role == model.RoleH3 || role == model.RoleH4 || role == model.RoleH5 {
-				shouldEndParagraph = true
-			} else if lastRole == model.RoleH1 || lastRole == model.RoleH2 || lastRole == model.RoleH3 || lastRole == model.RoleH4 || lastRole == model.RoleH5 {
-				// Previous line was a heading, start new paragraph
-				shouldEndParagraph = true
-			} else {
-				// Calculate line gap
-				lineGap := line.YMin - lastYMax
-				if bodyLineHeight > 0 && lineGap > bodyLineHeight*1.5 {
-					shouldEndParagraph = true
-				}
-			}
+		// Close an open table block if the role changes away from RoleTable.
+		if inTable && line.Role != model.RoleTable {
+			output.WriteString("```\n\n")
+			inTable = false
 		}
 
-		// Flush the current paragraph if needed
-		if shouldEndParagraph && paragraph.Len() > 0 {
-			flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+		// Flush accumulated paragraph when a new paragraph starts.
+		if line.StartsNewParagraph && paragraph.Len() > 0 {
+			flushParagraph(output, strings.TrimSpace(paragraph.String()))
 			paragraph.Reset()
 		}
 
-		// Handle heading lines
-		if lastRole == model.RoleTable && role != model.RoleTable {
-			output.WriteString("```\n\n")
-		}
-
-		switch role {
+		switch line.Role {
 		case model.RoleTable:
+			// Flush any non-table paragraph first.
 			if paragraph.Len() > 0 {
-				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				flushParagraph(output, strings.TrimSpace(paragraph.String()))
 				paragraph.Reset()
 			}
-			if lastRole != model.RoleTable {
+			if !inTable {
 				output.WriteString("```text\n")
+				inTable = true
 			}
-			output.WriteString(text)
+			output.WriteString(line.Text)
 			output.WriteString("\n")
+
 		case model.RoleH1:
 			if paragraph.Len() > 0 {
-				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				flushParagraph(output, strings.TrimSpace(paragraph.String()))
 				paragraph.Reset()
 			}
 			output.WriteString("# ")
-			output.WriteString(text)
+			output.WriteString(line.Text)
 			output.WriteString("\n\n")
+
 		case model.RoleH2:
 			if paragraph.Len() > 0 {
-				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				flushParagraph(output, strings.TrimSpace(paragraph.String()))
 				paragraph.Reset()
 			}
 			output.WriteString("## ")
-			output.WriteString(text)
+			output.WriteString(line.Text)
 			output.WriteString("\n\n")
+
 		case model.RoleH3:
 			if paragraph.Len() > 0 {
-				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				flushParagraph(output, strings.TrimSpace(paragraph.String()))
 				paragraph.Reset()
 			}
 			output.WriteString("### ")
-			output.WriteString(text)
+			output.WriteString(line.Text)
 			output.WriteString("\n\n")
+
 		case model.RoleH4:
 			if paragraph.Len() > 0 {
-				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				flushParagraph(output, strings.TrimSpace(paragraph.String()))
 				paragraph.Reset()
 			}
 			output.WriteString("#### ")
-			output.WriteString(text)
+			output.WriteString(line.Text)
 			output.WriteString("\n\n")
+
 		case model.RoleH5:
 			if paragraph.Len() > 0 {
-				flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+				flushParagraph(output, strings.TrimSpace(paragraph.String()))
 				paragraph.Reset()
 			}
 			output.WriteString("##### ")
-			output.WriteString(text)
+			output.WriteString(line.Text)
 			output.WriteString("\n\n")
+
 		default:
-			// Body or small line - add to paragraph
+			// Body or small: accumulate into the current paragraph.
 			if paragraph.Len() > 0 {
 				paragraph.WriteString(" ")
 			}
-
-			if role == model.RoleSmall {
+			if line.Role == model.RoleSmall {
 				paragraph.WriteString("<small>")
-				paragraph.WriteString(text)
+				paragraph.WriteString(line.Text)
 				paragraph.WriteString("</small>")
 			} else {
-				paragraph.WriteString(text)
+				paragraph.WriteString(line.Text)
 			}
 		}
 
-		lastRole = role
-		lastYMax = line.YMax
+		lastRole = line.Role
 	}
 
-	if lastRole == model.RoleTable {
+	// Close open table block.
+	if inTable {
 		output.WriteString("```\n\n")
 	}
 
-	// Flush any remaining paragraph
-	if paragraph.Len() > 0 {
-		flushParagraph(output, strings.TrimSpace(paragraph.String()), lastRole)
+	// Flush trailing paragraph.
+	if paragraph.Len() > 0 && lastRole != model.RoleTable {
+		flushParagraph(output, strings.TrimSpace(paragraph.String()))
 	}
 }
 
-// flushParagraph writes the accumulated paragraph text to output.
-func flushParagraph(output *strings.Builder, text string, role model.FontRole) {
+// flushParagraph writes a paragraph to output followed by a blank line.
+func flushParagraph(output *strings.Builder, text string) {
 	if text == "" {
 		return
 	}
 	output.WriteString(text)
 	output.WriteString("\n\n")
-}
-
-// calculateMedianBodyLineHeight computes the median line height for body text in a flow.
-func calculateMedianBodyLineHeight(flow model.Flow) float64 {
-	var heights []float64
-	for _, line := range flow.Lines {
-		if line.Role == model.RoleBody {
-			heights = append(heights, line.YMax-line.YMin)
-		}
-	}
-
-	if len(heights) == 0 {
-		return 0
-	}
-
-	sort.Float64s(heights)
-	mid := len(heights) / 2
-	if len(heights)%2 == 0 && mid > 0 {
-		return (heights[mid-1] + heights[mid]) / 2
-	}
-	return heights[mid]
 }

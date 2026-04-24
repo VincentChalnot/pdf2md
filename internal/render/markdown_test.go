@@ -122,10 +122,11 @@ func TestToMarkdownSidebar(t *testing.T) {
 						{XMin: 20, YMin: 50, XMax: 420, YMax: 70, FontSize: 12, Role: model.RoleBody, Text: "Body text."},
 					},
 				},
-				// Sidebar flow (narrow, right-aligned, short, starts with heading)
-				{
-					XMin: 500, YMin: 50, XMax: 700, YMax: 150,
-					Lines: []model.Line{
+			// Sidebar flow (narrow, right-aligned, short, starts with heading)
+			{
+				XMin: 500, YMin: 50, XMax: 700, YMax: 150,
+				IsSidebar: true,
+				Lines: []model.Line{
 						{XMin: 500, YMin: 50, XMax: 680, YMax: 70, FontSize: 14, Role: model.RoleH3, Text: "Sidebar Title"},
 						{XMin: 500, YMin: 80, XMax: 680, YMax: 95, FontSize: 10, Role: model.RoleBody, Text: "Sidebar content."},
 					},

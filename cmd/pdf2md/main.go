@@ -11,6 +11,7 @@ import (
 
 	"github.com/user/pdf2md/internal/extract"
 	"github.com/user/pdf2md/internal/model"
+	"github.com/user/pdf2md/internal/pipeline"
 	"github.com/user/pdf2md/internal/render"
 )
 
@@ -183,7 +184,7 @@ func pdfToBBox(pdfPath, baseName, cacheDir, bboxCache string) (string, func(), e
 	return extract.RunPdfToText(pdfPath, "")
 }
 
-// bboxToDocument parses bbox HTML and applies the full extraction pipeline.
+// bboxToDocument parses bbox HTML and runs the full pipeline on the resulting document.
 func bboxToDocument(bboxPath, inputPath string, minTextHeight float64) (*model.Document, error) {
 	doc, err := extract.ParseBBoxHTML(bboxPath)
 	if err != nil {
@@ -191,10 +192,11 @@ func bboxToDocument(bboxPath, inputPath string, minTextHeight float64) (*model.D
 	}
 
 	doc.Source = filepath.Base(inputPath)
-	extract.Clean(doc, minTextHeight)
-	extract.AssignFontRoles(doc)
-	extract.ApplyRolesToLines(doc)
-	extract.EstablishReadingOrder(doc)
+
+	d := pipeline.DefaultDispatcher(minTextHeight)
+	if err := d.Run(doc); err != nil {
+		return nil, err
+	}
 
 	return doc, nil
 }

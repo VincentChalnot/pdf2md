@@ -42,12 +42,13 @@ type Page struct {
 
 // Flow represents a grouped collection of text blocks.
 type Flow struct {
-	XMin   float64 `json:"xMin"`
-	YMin   float64 `json:"yMin"`
-	XMax   float64 `json:"xMax"`
-	YMax   float64 `json:"yMax"`
-	Blocks []Block `json:"blocks"`
-	Lines  []Line  `json:"lines"` // Deprecated: kept for backward compatibility, use Blocks instead
+	XMin      float64 `json:"xMin"`
+	YMin      float64 `json:"yMin"`
+	XMax      float64 `json:"xMax"`
+	YMax      float64 `json:"yMax"`
+	Blocks    []Block `json:"blocks"`
+	Lines     []Line  `json:"lines"` // Deprecated: kept for backward compatibility, use Blocks instead
+	IsSidebar bool    `json:"isSidebar,omitempty"` // Set by the PostProcess sidebar handler
 }
 
 // Block represents a text block from the bbox layout.
@@ -62,13 +63,14 @@ type Block struct {
 
 // Line represents a visual line of text.
 type Line struct {
-	XMin     float64  `json:"xMin"`
-	YMin     float64  `json:"yMin"`
-	XMax     float64  `json:"xMax"`
-	YMax     float64  `json:"yMax"`
-	FontSize float64  `json:"fontSize"`
-	Role     FontRole `json:"role,omitempty"`
-	Text     string   `json:"text"`
+	XMin              float64  `json:"xMin"`
+	YMin              float64  `json:"yMin"`
+	XMax              float64  `json:"xMax"`
+	YMax              float64  `json:"yMax"`
+	FontSize          float64  `json:"fontSize"`
+	Role              FontRole `json:"role,omitempty"`
+	Text              string   `json:"text"`
+	StartsNewParagraph bool    `json:"startsNewParagraph,omitempty"` // Set by the Process reflow handler
 }
 
 // Word represents a word parsed from bbox-layout (used during processing, not in final model).
