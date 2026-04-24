@@ -11,7 +11,8 @@ import (
 )
 
 // HTML writes a self-contained HTML document with SVG-based page rendering.
-// Each page is rendered as an inline SVG with exact dimensions from the document.
+// Each page is rendered as a row with the bbox SVG on the left (fixed pixel size
+// derived from the page dimensions) and the Markdown output on the right.
 // Lines use textLength and lengthAdjust to fit within their bounding boxes.
 // Debug overlays show flow, block, and line boundaries.
 func HTML(w io.Writer, doc *model.Document) error {
@@ -24,7 +25,11 @@ func HTML(w io.Writer, doc *model.Document) error {
   body { margin: 20px; font-family: 'Consolas', 'Monaco', 'Menlo', monospace; }
   .page { margin-bottom: 40px; }
   .page-info { font-size: 14px; color: #333; margin: 0 0 8px 0; }
-  svg { border: 1px solid #666; display: block; width: 100%%; height: auto; }
+  .page-columns { display: flex; gap: 24px; align-items: flex-start; }
+  .page-svg-col { flex: 0 0 auto; }
+  .page-svg-col svg { border: 1px solid #666; display: block; }
+  .page-md-col { flex: 1 1 auto; overflow: auto; }
+  .page-md-col pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: 'Consolas', 'Monaco', 'Menlo', monospace; font-size: 13px; line-height: 1.5; border: 1px solid #ccc; padding: 12px; background: #fafafa; min-height: 40px; }
   .h1 { fill: #e74c3c; font-weight: bold; }
   .h2 { fill: #e67e22; font-weight: bold; }
   .h3 { fill: #f1c40f; }
@@ -97,7 +102,7 @@ func HTML(w io.Writer, doc *model.Document) error {
 			}
 		}
 
-		// Page info in plain HTML above the SVG
+		// Page info in plain HTML above the row
 		totalBands := len(bandColumns)
 		if totalBands > 0 {
 			if _, err := fmt.Fprintf(w, "<div class=\"page\">\n<p class=\"page-info\">Page: %d - Bands: %d - Columns: %s</p>\n",
@@ -111,8 +116,14 @@ func HTML(w io.Writer, doc *model.Document) error {
 			}
 		}
 
+		// Open side-by-side row; SVG column has fixed pixel dimensions from page size scaled 1.5x
+		if _, err := fmt.Fprint(w, "<div class=\"page-columns\">\n<div class=\"page-svg-col\">\n"); err != nil {
+			return err
+		}
+
+		const svgScale = 1.5
 		if _, err := fmt.Fprintf(w, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"%g\" height=\"%g\" viewBox=\"0 0 %g %g\">\n",
-			page.Width, page.Height, page.Width, page.Height); err != nil {
+			page.Width*svgScale, page.Height*svgScale, page.Width, page.Height); err != nil {
 			return err
 		}
 
@@ -275,6 +286,25 @@ func HTML(w io.Writer, doc *model.Document) error {
 		}
 
 		if _, err := fmt.Fprint(w, "</svg>\n</div>\n"); err != nil {
+			return err
+		}
+
+		// Markdown column: render only the flows of this page
+		var mdBuf strings.Builder
+		var dummyFirstH1 string
+		var dummyFirstH1Emitted bool
+		for _, flow := range page.Flows {
+			if len(flow.Lines) == 0 {
+				continue
+			}
+			renderFlow(&mdBuf, flow, &dummyFirstH1, &dummyFirstH1Emitted)
+		}
+		if _, err := fmt.Fprintf(w, "<div class=\"page-md-col\">\n<pre>%s</pre>\n</div>\n",
+			html.EscapeString(strings.TrimSpace(mdBuf.String()))); err != nil {
+			return err
+		}
+
+		if _, err := fmt.Fprint(w, "</div>\n</div>\n"); err != nil {
 			return err
 		}
 	}

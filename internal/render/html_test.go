@@ -85,11 +85,11 @@ func TestHTMLBasicOutput(t *testing.T) {
 	if !strings.Contains(out, "<svg") {
 		t.Error("output should contain <svg>")
 	}
-	if !strings.Contains(out, `width="800"`) {
-		t.Error("output should contain SVG width")
+	if !strings.Contains(out, `width="1200"`) {
+		t.Error("output should contain SVG width (800 * 1.5 = 1200)")
 	}
-	if !strings.Contains(out, `height="600"`) {
-		t.Error("output should contain SVG height")
+	if !strings.Contains(out, `height="900"`) {
+		t.Error("output should contain SVG height (600 * 1.5 = 900)")
 	}
 
 	// Check text elements with textLength.
@@ -299,12 +299,20 @@ func TestHTMLViewPortSVG(t *testing.T) {
 
 	out := buf.String()
 
-	// SVGs should have viewport-relative sizing via CSS
-	if !strings.Contains(out, "width: 100%") {
-		t.Error("SVG CSS should have width: 100%")
+	// SVG should have fixed pixel dimensions scaled 1.5x from the page size (not CSS-relative sizing)
+	if !strings.Contains(out, `width="750"`) {
+		t.Error("SVG element should have fixed width attribute = page width * 1.5 (500 * 1.5 = 750)")
 	}
-	if !strings.Contains(out, "height: auto") {
-		t.Error("SVG CSS should have height: auto")
+	if !strings.Contains(out, `height="450"`) {
+		t.Error("SVG element should have fixed height attribute = page height * 1.5 (300 * 1.5 = 450)")
+	}
+	// viewBox should still reflect the original page coordinates
+	if !strings.Contains(out, `viewBox="0 0 500 300"`) {
+		t.Error("SVG viewBox should use original page dimensions")
+	}
+	// Should NOT use viewport-relative CSS sizing on the SVG
+	if strings.Contains(out, "width: 100%") {
+		t.Error("SVG should not use CSS width: 100% — it must be fixed size")
 	}
 }
 
@@ -575,11 +583,8 @@ func TestHTMLPageInfoDisplay(t *testing.T) {
 		t.Error("page-info should appear before SVG element")
 	}
 
-	// Border should be darker grey
+	// SVG col border should be darker grey
 	if !strings.Contains(out, "#666") {
 		t.Error("SVG border should use darker grey (#666)")
-	}
-	if strings.Contains(out, "#ccc") {
-		t.Error("SVG border should NOT use light grey (#ccc)")
 	}
 }
