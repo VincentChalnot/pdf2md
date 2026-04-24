@@ -70,6 +70,7 @@ func (d *Dispatcher) Run(doc *model.Document) error {
 //
 //	priority 10 – Clean          (noise/watermark removal, line deduplication)
 //	priority 20 – FontRoles      (font size bucket analysis and role assignment)
+//	priority 25 – HeaderFooter   (cross-page header/footer/page-number filtering)
 //	priority 30 – ReadingOrder   (column detection, drop-cap merging, band ordering)
 //
 // Process phase (reflow):
@@ -88,6 +89,7 @@ func DefaultDispatcher(minTextHeight float64) *Dispatcher {
 	// PreProcess
 	d.Register(pre_process.NewCleanHandler(minTextHeight))
 	d.Register(pre_process.NewFontRolesHandler())
+	d.Register(pre_process.NewHeaderFooterHandler())
 	d.Register(pre_process.NewReadingOrderHandler())
 
 	// Process
